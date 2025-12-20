@@ -6807,13 +6807,18 @@
       const p = document.getElementById('video-placeholder');
       if (p) p.textContent = 'Loading ' + allFiles.length + ' video(s)...';
       
-      // Process files - use async for iOS Service Worker support
-      processVideoFiles(allFiles);
+      // Mobile: simple direct processing
+      // Desktop: full filtering with timeframe and sequence handling
+      if (isMobile) {
+        processVideoFilesSimple(allFiles);
+      } else {
+        processVideoFilesWithFiltering(allFiles, inputId);
+      }
     }
     
-    async function processVideoFiles(allFiles) {
+    // Simple processing for mobile - minimal overhead
+    async function processVideoFilesSimple(allFiles) {
       for (const file of allFiles) {
-        // Parse timestamp from filename
         const info = parseVideoInfo(file.name);
         const timestamp = info ? info.baseTimestampMs : parseVideoTimestamp(file.name);
         
@@ -6822,95 +6827,270 @@
           continue;
         }
         
-        // Calculate offset from playback reference
-        const referenceStartMs = getPlaybackStartTimeMs();
-        const offsetMs = timestamp - referenceStartMs;
-        
-        // Create video element
-        const video = document.createElement('video');
-        video.muted = playbackSpeed > 2;
-        video.playsInline = true;
-        video.setAttribute('playsinline', '');
-        video.setAttribute('webkit-playsinline', '');
-        video.preload = 'metadata';
-        video.style.display = 'none';
-        
-        // Generate unique file ID for Service Worker
-        const fileId = 'video_' + (++videoFileIdCounter) + '_' + Date.now();
-        
-        // Use Service Worker for iOS (supports Range requests for large files)
-        // Use blob URL for desktop (simpler, works well)
-        let blobUrl = null;
-        if (isIOS && swReady) {
-          const sent = await sendFileToSW(file, fileId);
-          if (sent) {
-            video.src = './__localvideo?id=' + fileId + '&ts=' + Date.now();
-          } else {
-            // Fallback to blob
-            blobUrl = URL.createObjectURL(file);
-            video.src = blobUrl;
-          }
-        } else {
-          // Desktop: use blob URL
-          blobUrl = URL.createObjectURL(file);
-          video.src = blobUrl;
-        }
-        
-        video.load();
-        
-        const videoData = {
-          element: video,
-          filename: file.name,
-          fileId: fileId,
-          blobUrl: blobUrl,
-          startTimestampMs: timestamp,
-          offsetMs: offsetMs,
-          durationSec: 0,
-          endTimestampMs: timestamp,
-          baseKey: info ? info.baseKey : null,
-          sequenceNum: info ? info.sequenceNum : 0,
-          buffered: false,
-          bufferProgress: 0,
-          isWaiting: false,
-          loaded: true
-        };
-        
-        // Set up event listeners
-        video.addEventListener('loadedmetadata', () => {
-          videoData.durationSec = video.duration;
-          videoData.endTimestampMs = timestamp + video.duration * 1000;
-          renderVideoTimelineMarkers();
-        });
-        
-        video.addEventListener('waiting', () => {
-          videoData.isWaiting = true;
-          if (currentActiveVideo === videoData && isPlaying) {
-            videoStalled = true;
-            updateVideoStatusIndicator();
-          }
-        });
-        
-        video.addEventListener('playing', () => {
-          videoData.isWaiting = false;
-          if (currentActiveVideo === videoData) {
-            videoStalled = false;
-          }
-          updateVideoStatusIndicator();
-        });
-        
-        video.addEventListener('canplaythrough', () => {
-          videoData.buffered = true;
-          videoData.bufferProgress = 100;
-          updateBufferingStatus();
-        });
-        
-        loadedVideos.push(videoData);
+        await addVideoFile(file, info, timestamp);
       }
       
       // Show remove button and update display
-      document.getElementById('remove-videos-btn').style.display = '';
+      if (loadedVideos.length > 0) {
+        document.getElementById('remove-videos-btn').style.display = '';
+      }
       updateActiveVideoDisplay();
       updateBufferingStatus();
+    }
+    
+    // Full processing for desktop with filtering and sequence handling
+    async function processVideoFilesWithFiltering(files, inputId) {
+      const isFolderSelection = inputId === 'video-folder-input';
+      
+      let videoFiles;
+      
+      if (isFolderSelection) {
+        // For folder selection, filter for video files
+        videoFiles = files.filter(file => {
+          const isVideoType = file.type && file.type.startsWith('video/');
+          const name = file.name.toLowerCase();
+          const isVideoExt = /\.(mp4|mov|avi|mkv|webm|m4v|3gp|3g2)$/.test(name);
+          return isVideoType || isVideoExt;
+        });
+      } else {
+        // For direct file selection, accept all files
+        videoFiles = files;
+      }
+      
+      if (videoFiles.length === 0) {
+        alert('No video files found in selection.');
+        return;
+      }
+      
+      // For folder selection, filter to only videos within track timeframe
+      let timeframeFilteredCount = 0;
+      if (isFolderSelection && ALL_SESSIONS.length > 0) {
+        const MARGIN_MS = 60 * 60 * 1000;  // 1 hour margin
+        let minTrackTime = Infinity;
+        let maxTrackTime = -Infinity;
+        
+        ALL_SESSIONS.forEach(session => {
+          if (session.startTimestampMs) {
+            minTrackTime = Math.min(minTrackTime, session.startTimestampMs);
+            const durationMs = (session.fullDuration || session.s.dur) * 60 * 1000;
+            maxTrackTime = Math.max(maxTrackTime, session.startTimestampMs + durationMs);
+          }
+        });
+        
+        if (minTrackTime !== Infinity && maxTrackTime !== -Infinity) {
+          const startWindow = minTrackTime - MARGIN_MS;
+          const endWindow = maxTrackTime + MARGIN_MS;
+          
+          const originalCount = videoFiles.length;
+          videoFiles = videoFiles.filter(file => {
+            const info = parseVideoInfo(file.name);
+            const timestamp = info ? info.baseTimestampMs : parseVideoTimestamp(file.name);
+            if (!timestamp) return true;  // Keep files we can't parse
+            return timestamp >= startWindow && timestamp <= endWindow;
+          });
+          timeframeFilteredCount = originalCount - videoFiles.length;
+        }
+      }
+      
+      if (videoFiles.length === 0) {
+        alert(`No video files found matching the track timeframe.\n\n${timeframeFilteredCount} video(s) were outside the sailing session time window.`);
+        return;
+      }
+      
+      // Parse all files and group by base timestamp
+      const fileInfos = [];
+      const sequenceGroups = {};
+      const skippedFiles = [];
+      
+      videoFiles.forEach(file => {
+        const info = parseVideoInfo(file.name);
+        if (info) {
+          fileInfos.push({ file, info });
+          if (!sequenceGroups[info.baseKey]) {
+            sequenceGroups[info.baseKey] = [];
+          }
+          sequenceGroups[info.baseKey].push({ file, info });
+        } else {
+          const timestamp = parseVideoTimestamp(file.name);
+          if (timestamp) {
+            fileInfos.push({ file, info: { baseTimestampMs: timestamp, sequenceNum: 0, baseKey: null } });
+          } else {
+            skippedFiles.push(file.name);
+          }
+        }
+      });
+      
+      // Show alerts for skipped files
+      if (skippedFiles.length > 0) {
+        const fileList = skippedFiles.length <= 10 
+          ? skippedFiles.join('\n') 
+          : skippedFiles.slice(0, 10).join('\n') + `\n... and ${skippedFiles.length - 10} more`;
+        
+        if (fileInfos.length === 0) {
+          alert(`Could not parse timestamps from ${skippedFiles.length} video file(s):\n\n${fileList}\n\nExpected format: VID_YYYYMMDD_HHMMSS_XX_YYY.mp4`);
+          return;
+        } else {
+          const timeframeMsg = timeframeFilteredCount > 0 ? `\n\n${timeframeFilteredCount} video(s) filtered (outside track timeframe).` : '';
+          alert(`Skipped ${skippedFiles.length} video(s) without valid timestamp:\n\n${fileList}\n\nLoaded ${fileInfos.length} video(s) successfully.${timeframeMsg}`);
+        }
+      } else if (timeframeFilteredCount > 0) {
+        console.log(`Filtered ${timeframeFilteredCount} video(s) outside track timeframe. Loaded ${fileInfos.length} video(s).`);
+      }
+      
+      if (fileInfos.length === 0) {
+        return;
+      }
+      
+      // Find minimum sequence number for each group (including both new and existing videos)
+      const minSequenceByGroup = {};
+      const oldMinSequenceByGroup = {};
+      
+      Object.keys(sequenceGroups).forEach(key => {
+        const group = sequenceGroups[key];
+        const existingInGroup = loadedVideos.filter(v => v.baseKey === key);
+        
+        // Calculate old minimum (from existing videos only)
+        if (existingInGroup.length > 0) {
+          oldMinSequenceByGroup[key] = Math.min(...existingInGroup.map(v => v.sequenceNum || 0));
+        }
+        
+        // Calculate new minimum (including new files)
+        const allSequences = [
+          ...group.map(g => g.info.sequenceNum),
+          ...existingInGroup.map(v => v.sequenceNum || 0)
+        ];
+        minSequenceByGroup[key] = Math.min(...allSequences);
+      });
+      
+      // If minimum sequence changed for any group, update existing videos' timestamps
+      Object.keys(minSequenceByGroup).forEach(key => {
+        if (oldMinSequenceByGroup[key] !== undefined && 
+            minSequenceByGroup[key] < oldMinSequenceByGroup[key]) {
+          // New file(s) have lower sequence number - shift existing videos forward
+          const shiftAmount = (oldMinSequenceByGroup[key] - minSequenceByGroup[key]) * 30 * 60 * 1000;
+          
+          loadedVideos.forEach(v => {
+            if (v.baseKey === key) {
+              v.startTimestampMs += shiftAmount;
+              v.endTimestampMs += shiftAmount;
+              v.offsetMs = v.startTimestampMs - getPlaybackStartTimeMs();
+            }
+          });
+          
+          console.log(`Sequence ${key}: shifted existing videos forward by ${shiftAmount / 60000} minutes`);
+        }
+      });
+      
+      // Process files with adjusted timestamps for sequences
+      const placeholder = document.getElementById('video-placeholder');
+      for (let i = 0; i < fileInfos.length; i++) {
+        if (placeholder) {
+          placeholder.textContent = `Loading video ${i + 1} of ${fileInfos.length}...`;
+        }
+        
+        const { file, info } = fileInfos[i];
+        let timestampMs = info.baseTimestampMs;
+        
+        // Apply sequence offset (30 min per increment from minimum)
+        if (info.baseKey && minSequenceByGroup[info.baseKey] !== undefined) {
+          const seqOffset = info.sequenceNum - minSequenceByGroup[info.baseKey];
+          timestampMs += seqOffset * 30 * 60 * 1000;
+        }
+        
+        await addVideoFile(file, info, timestampMs);
+      }
+      
+      // Re-sort loadedVideos by startTimestampMs to maintain correct order
+      loadedVideos.sort((a, b) => a.startTimestampMs - b.startTimestampMs);
+      
+      // Update timeline markers to reflect any changes
+      renderVideoTimelineMarkers();
+      
+      // Show remove button and update display
+      if (loadedVideos.length > 0) {
+        document.getElementById('remove-videos-btn').style.display = '';
+      }
+      updateActiveVideoDisplay();
+      updateBufferingStatus();
+    }
+    
+    // Shared function to add a video file
+    async function addVideoFile(file, info, timestamp) {
+      const referenceStartMs = getPlaybackStartTimeMs();
+      const offsetMs = timestamp - referenceStartMs;
+      
+      const video = document.createElement('video');
+      video.muted = playbackSpeed > 2;
+      video.playsInline = true;
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', '');
+      video.preload = 'metadata';
+      video.style.display = 'none';
+      
+      const fileId = 'video_' + (++videoFileIdCounter) + '_' + Date.now();
+      
+      let blobUrl = null;
+      if (isIOS && swReady) {
+        const sent = await sendFileToSW(file, fileId);
+        if (sent) {
+          video.src = './__localvideo?id=' + fileId + '&ts=' + Date.now();
+        } else {
+          blobUrl = URL.createObjectURL(file);
+          video.src = blobUrl;
+        }
+      } else {
+        blobUrl = URL.createObjectURL(file);
+        video.src = blobUrl;
+      }
+      
+      video.load();
+      
+      const videoData = {
+        element: video,
+        filename: file.name,
+        fileId: fileId,
+        blobUrl: blobUrl,
+        startTimestampMs: timestamp,
+        offsetMs: offsetMs,
+        durationSec: 0,
+        endTimestampMs: timestamp,
+        baseKey: info ? info.baseKey : null,
+        sequenceNum: info ? info.sequenceNum : 0,
+        buffered: false,
+        bufferProgress: 0,
+        isWaiting: false,
+        loaded: true
+      };
+      
+      video.addEventListener('loadedmetadata', () => {
+        videoData.durationSec = video.duration;
+        videoData.endTimestampMs = timestamp + video.duration * 1000;
+        renderVideoTimelineMarkers();
+      });
+      
+      video.addEventListener('waiting', () => {
+        videoData.isWaiting = true;
+        if (currentActiveVideo === videoData && isPlaying) {
+          videoStalled = true;
+          updateVideoStatusIndicator();
+        }
+      });
+      
+      video.addEventListener('playing', () => {
+        videoData.isWaiting = false;
+        if (currentActiveVideo === videoData) {
+          videoStalled = false;
+        }
+        updateVideoStatusIndicator();
+      });
+      
+      video.addEventListener('canplaythrough', () => {
+        videoData.buffered = true;
+        videoData.bufferProgress = 100;
+        updateBufferingStatus();
+      });
+      
+      loadedVideos.push(videoData);
     }
     
     
