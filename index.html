@@ -7235,8 +7235,17 @@
       
       // Find video that contains current time
       for (const v of sorted) {
-        if (currentAbsoluteMs >= v.startTimestampMs && currentAbsoluteMs <= v.endTimestampMs) {
-          return v;
+        // If metadata loaded (durationSec > 0), check proper range
+        if (v.durationSec > 0) {
+          if (currentAbsoluteMs >= v.startTimestampMs && currentAbsoluteMs <= v.endTimestampMs) {
+            return v;
+          }
+        } else {
+          // Metadata not loaded yet - if video started before current time, assume it might contain it
+          // (typical video is 30 min, so give it benefit of doubt)
+          if (currentAbsoluteMs >= v.startTimestampMs && currentAbsoluteMs <= v.startTimestampMs + 60 * 60 * 1000) {
+            return v;
+          }
         }
       }
       
@@ -7244,6 +7253,22 @@
       for (const v of sorted) {
         if (v.startTimestampMs > currentAbsoluteMs) {
           return v;
+        }
+      }
+      
+      // Check if any video started before current time (could still be playing)
+      // This handles the case where timeline selection starts mid-video
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        const v = sorted[i];
+        if (v.startTimestampMs <= currentAbsoluteMs) {
+          // Video started before current time - might still be playing
+          // Check if we're within reasonable range (durationSec if known, else assume up to 1 hour)
+          const maxEndMs = v.durationSec > 0 
+            ? v.endTimestampMs 
+            : v.startTimestampMs + 60 * 60 * 1000;
+          if (currentAbsoluteMs <= maxEndMs) {
+            return v;
+          }
         }
       }
       
@@ -7583,7 +7608,12 @@
         return;
       }
       
-      const isVideoActive = videoTimeSec >= 0 && videoTimeSec <= currentActiveVideo.durationSec;
+      // Use actual duration if loaded, otherwise assume reasonable max (1 hour)
+      const effectiveDuration = currentActiveVideo.durationSec > 0 
+        ? currentActiveVideo.durationSec 
+        : 60 * 60;
+      
+      const isVideoActive = videoTimeSec >= 0 && videoTimeSec <= effectiveDuration;
       
       if (videoTimeSec < 0) {
         // Video not yet started - show unavailable with countdown
@@ -7603,7 +7633,7 @@
           const secs = secsUntilVideo % 60;
           countdownEl.textContent = `Next video starts in ${mins}:${secs.toString().padStart(2, '0')}`;
         }
-      } else if (videoTimeSec > currentActiveVideo.durationSec) {
+      } else if (videoTimeSec > effectiveDuration) {
         // Video ended - show unavailable, find next video
         timeText.textContent = formatVideoDateTime(currentAbsoluteMs);
         statusBadge.textContent = 'Video not available';
@@ -8155,9 +8185,14 @@
       const videoTimeMs = currentAbsoluteMs - currentActiveVideo.startTimestampMs;
       const videoTimeSec = videoTimeMs / 1000;
       
+      // Use actual duration if loaded, otherwise assume reasonable max (1 hour)
+      const effectiveDuration = currentActiveVideo.durationSec > 0 
+        ? currentActiveVideo.durationSec 
+        : 60 * 60;
+      
       // Only seek on manual scrub
       if (forceSeek) {
-        if (videoTimeSec >= 0 && videoTimeSec <= currentActiveVideo.durationSec) {
+        if (videoTimeSec >= 0 && videoTimeSec <= effectiveDuration) {
           currentActiveVideo.element.currentTime = videoTimeSec;
         } else if (videoTimeSec < 0) {
           currentActiveVideo.element.currentTime = 0;
@@ -8534,10 +8569,11 @@
               const currentAbsoluteMs = referenceStartMs + playbackTime * 60000;
               const videoTimeMs = currentAbsoluteMs - currentActiveVideo.startTimestampMs;
               const videoTimeSec = videoTimeMs / 1000;
+              const effectiveDuration = currentActiveVideo.durationSec > 0 ? currentActiveVideo.durationSec : 60 * 60;
               
               if (currentActiveVideo.isWaiting && isPlaying) {
                 dotColor = '#ef4444'; // red - LOADING
-              } else if (videoTimeSec < 0 || videoTimeSec > currentActiveVideo.durationSec) {
+              } else if (videoTimeSec < 0 || videoTimeSec > effectiveDuration) {
                 dotColor = '#6b7280'; // gray - Video not available
               } else {
                 dotColor = '#22c55e'; // green - LIVE
@@ -8660,10 +8696,11 @@
             const currentAbsoluteMs = referenceStartMs + playbackTime * 60000;
             const videoTimeMs = currentAbsoluteMs - currentActiveVideo.startTimestampMs;
             const videoTimeSec = videoTimeMs / 1000;
+            const effectiveDuration = currentActiveVideo.durationSec > 0 ? currentActiveVideo.durationSec : 60 * 60;
             
             if (currentActiveVideo.isWaiting && isPlaying) {
               dotColor = '#ef4444'; // red - LOADING
-            } else if (videoTimeSec < 0 || videoTimeSec > currentActiveVideo.durationSec) {
+            } else if (videoTimeSec < 0 || videoTimeSec > effectiveDuration) {
               dotColor = '#6b7280'; // gray - Video not available
             } else {
               dotColor = '#22c55e'; // green - LIVE
@@ -8692,6 +8729,7 @@
       const currentAbsoluteMs = referenceStartMs + playbackTime * 60000;
       const videoTimeMs = currentAbsoluteMs - currentActiveVideo.startTimestampMs;
       const videoTimeSec = videoTimeMs / 1000;
+      const effectiveDuration = currentActiveVideo.durationSec > 0 ? currentActiveVideo.durationSec : 60 * 60;
       
       // Set playback rate and mute - disable pitch preservation for faster decoding
       currentActiveVideo.element.playbackRate = Math.min(playbackSpeed, 16);
@@ -8699,7 +8737,7 @@
       currentActiveVideo.element.preservesPitch = false;
       
       // Only play if in range
-      if (videoTimeSec >= 0 && videoTimeSec < currentActiveVideo.durationSec) {
+      if (videoTimeSec >= 0 && videoTimeSec < effectiveDuration) {
         currentActiveVideo.element.currentTime = videoTimeSec;
         // Use play promise to catch and ignore autoplay errors
         const playPromise = currentActiveVideo.element.play();
