@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Local Video Player (iOS) — Telemetry Overlay (Fake Fullscreen + Collapse Bars)</title>
+  <title>Local Video Player (iOS) — Telemetry Overlay (Stability Tweaks)</title>
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -11,6 +11,7 @@
       margin: 0;
       padding: 18px;
       line-height: 1.35;
+      overscroll-behavior: none;
     }
     h1 { font-size: 20px; margin: 0 0 10px; }
     .note { font-size: 13px; opacity: 0.82; margin: 8px 0 14px; max-width: 860px; }
@@ -26,7 +27,6 @@
     }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    /* Player wrapper */
     #player {
       position: relative;
       width: 100%;
@@ -45,7 +45,6 @@
       background: #000;
     }
 
-    /* Telemetry overlay */
     #overlay {
       position: absolute;
       top: 12px;
@@ -61,9 +60,24 @@
       user-select: none;
     }
 
-    /* Fake fullscreen: keeps HTML overlay visible on iOS */
-    /* NOTE: We intentionally DO NOT disable vertical scrolling, because iOS collapses
-       the browser bars only after a scroll. We just hide horizontal overflow. */
+    /* Optional "buffering" hint (helps you see when iOS stalls) */
+    #status {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      z-index: 10;
+      padding: 6px 8px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.45);
+      color: #fff;
+      font-size: 13px;
+      pointer-events: none;
+      user-select: none;
+      display: none;
+    }
+    #player.show-status #status { display: block; }
+
+    /* Fake fullscreen (keeps overlay visible) */
     body.fs-lock {
       overflow-x: hidden;
       -webkit-overflow-scrolling: touch;
@@ -73,8 +87,8 @@
       position: fixed;
       inset: 0;
       width: 100vw;
-      height: 100dvh; /* modern iOS */
-      height: calc(var(--vh, 1vh) * 100); /* fallback */
+      height: 100dvh;
+      height: calc(var(--vh, 1vh) * 100);
       max-width: none;
       margin: 0;
       border-radius: 0;
@@ -89,7 +103,6 @@
       object-fit: contain;
     }
 
-    /* Exit button shown only in fullscreen */
     #exitBtn {
       position: absolute;
       right: 12px;
@@ -114,9 +127,9 @@
 <body>
   <h1>Local Video Player (iOS) — Telemetry Overlay</h1>
   <div class="note">
-    This version uses “fake fullscreen” (CSS fixed overlay) so the telemetry label stays visible.
-    It also performs a tiny scroll to encourage iOS to collapse the browser bars after entering fullscreen
-    and after rotating the device.
+    If you see freezing on seek/pause, it’s usually an iOS Safari inline-video quirk (especially with large files / external drives).
+    This build tries to improve stability by:
+    (1) collapsing browser bars once, then (2) locking scroll without further page movement, and (3) attempting auto-recover on stalls.
   </div>
 
   <div class="row">
@@ -124,15 +137,16 @@
     <button id="fsBtn" disabled>Fullscreen (with telemetry)</button>
   </div>
 
-  <!-- Scroll shim: we temporarily make the page scrollable so iOS can collapse the address bar -->
+  <!-- Scroll shim used briefly to collapse browser bars -->
   <div id="scrollShim" aria-hidden="true" style="height:0;"></div>
 
   <div id="player" aria-label="Video player">
     <div id="overlay">telemetry</div>
+    <div id="status">buffering…</div>
     <button id="exitBtn" type="button" aria-label="Exit fullscreen">Done</button>
 
-    <!-- playsinline prevents iOS from switching to native fullscreen automatically -->
-    <video id="video" controls playsinline preload="metadata"></video>
+    <!-- Inline playback is required for HTML overlay to stay visible -->
+    <video id="video" controls playsinline webkit-playsinline preload="metadata"></video>
   </div>
 
   <div id="meta" class="meta"></div>
@@ -148,6 +162,25 @@
 
     let currentUrl = null;
 
+    // Scroll-lock (position:fixed) without disabling iOS' ability to collapse bars initially
+    let savedScrollY = 0;
+    function lockScrollPosition() {
+      savedScrollY = window.scrollY || 0;
+      document.body.style.position = "fixed";
+      document.body.style.top = `-${savedScrollY}px`;
+      document.body.style.left = "0";
+      document.body.style.right = "0";
+      document.body.style.width = "100%";
+    }
+    function unlockScrollPosition() {
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      document.body.style.width = "";
+      window.scrollTo(0, savedScrollY);
+    }
+
     function bytesToHuman(n) {
       if (!Number.isFinite(n)) return "";
       const units = ["B","KB","MB","GB","TB"];
@@ -156,7 +189,6 @@
       return `${n.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
     }
 
-    // Viewport helper (some iOS versions reflow on rotation / address bar changes)
     function setVhVar() {
       const vh = window.innerHeight * 0.01;
       document.documentElement.style.setProperty("--vh", `${vh}px`);
@@ -164,17 +196,23 @@
     setVhVar();
     window.addEventListener("resize", setVhVar);
 
-    function collapseBrowserUI() {
-      // Provide scroll room; iOS collapses browser UI after scrolling.
+    function collapseBrowserUIOnceThenLock() {
+      // 1) Give scroll room, then do a tiny scroll to encourage collapsing bars
       scrollShim.style.height = "200vh";
-
-      // Ensure we're at top first
       window.scrollTo(0, 0);
 
-      // Nudge scroll by 1px on the next frames
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           window.scrollTo(0, 1);
+
+          // 2) After a short delay, lock scroll to avoid continuous page movement,
+          // which can trigger iOS inline video glitches.
+          setTimeout(() => {
+            // Keep a tiny scroll position (1px) but stop further scroll.
+            lockScrollPosition();
+            // We can shrink shim; keep a little extra space to avoid re-expansion.
+            scrollShim.style.height = "120vh";
+          }, 250);
         });
       });
     }
@@ -182,16 +220,33 @@
     function enterFakeFullscreen() {
       document.body.classList.add("fs-lock");
       player.classList.add("fake-fullscreen");
-      collapseBrowserUI();
+      collapseBrowserUIOnceThenLock();
     }
 
     function exitFakeFullscreen() {
-      document.body.classList.remove("fs-lock");
       player.classList.remove("fake-fullscreen");
+      document.body.classList.remove("fs-lock");
 
-      // Optional: remove scroll space and return to top
+      unlockScrollPosition();
       scrollShim.style.height = "0";
       window.scrollTo(0, 0);
+    }
+
+    // Basic stall recovery
+    let recoverTimer = null;
+    function showBuffering(on) {
+      if (on) player.classList.add("show-status");
+      else player.classList.remove("show-status");
+    }
+    function scheduleRecover() {
+      clearTimeout(recoverTimer);
+      recoverTimer = setTimeout(async () => {
+        try {
+          if (video.paused) return;
+          // Re-issue play; iOS sometimes resumes after a nudge
+          await video.play();
+        } catch (_) {}
+      }, 300);
     }
 
     picker.addEventListener("change", () => {
@@ -219,25 +274,31 @@
       }
     });
 
-    exitBtn.addEventListener("click", () => {
-      exitFakeFullscreen();
-    });
+    exitBtn.addEventListener("click", () => exitFakeFullscreen());
+    video.addEventListener("ended", () => exitFakeFullscreen());
 
-    video.addEventListener("ended", () => {
-      exitFakeFullscreen();
-    });
+    // Stall events (common during seek or when file is on slow external storage)
+    video.addEventListener("waiting", () => { showBuffering(true); scheduleRecover(); });
+    video.addEventListener("stalled", () => { showBuffering(true); scheduleRecover(); });
+    video.addEventListener("playing", () => showBuffering(false));
+    video.addEventListener("canplay", () => showBuffering(false));
+    video.addEventListener("pause", () => showBuffering(false));
 
-    // Try again after rotation (iOS often expands bars on orientation change)
+    // If user seeks and iOS "hangs", this helps in some cases
+    video.addEventListener("seeking", () => { showBuffering(true); });
+    video.addEventListener("seeked", () => { showBuffering(false); scheduleRecover(); });
+
     window.addEventListener("orientationchange", () => {
       setTimeout(() => {
         if (player.classList.contains("fake-fullscreen")) {
           setVhVar();
-          collapseBrowserUI();
+          // Re-collapse bars and re-lock scroll after rotation
+          unlockScrollPosition();
+          collapseBrowserUIOnceThenLock();
         }
       }, 250);
     });
 
-    // Cleanup
     window.addEventListener("beforeunload", () => {
       if (currentUrl) URL.revokeObjectURL(currentUrl);
     });
