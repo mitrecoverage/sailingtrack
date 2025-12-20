@@ -580,6 +580,44 @@
       /* Hide folder picker on mobile - webkitdirectory not supported */
       #video-folder-input { display: none !important; }
       label[title="Select folder with videos"] { display: none !important; }
+      
+      /* CRITICAL: Make map/video layout stack vertically on mobile */
+      #map-and-content-card > .flex {
+        flex-wrap: wrap !important;
+        flex-direction: column !important;
+      }
+      
+      #map-container {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: 0 0 auto !important;
+      }
+      
+      #map-container svg {
+        width: 100% !important;
+        height: auto !important;
+        max-height: 350px;
+      }
+      
+      #race-replay-right-column {
+        min-width: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+      
+      #stats-panel {
+        width: 100% !important;
+        min-width: 0 !important;
+      }
+      
+      #video-replay-section {
+        width: 100% !important;
+      }
+      
+      /* Grid adjustments for mobile */
+      .grid-2, .grid-3, .grid-6 {
+        grid-template-columns: repeat(2, 1fr) !important;
+      }
     }
     
     /* Fullscreen mobile adjustments */
@@ -4265,7 +4303,7 @@
       const newInput = document.createElement('input');
       newInput.type = 'file';
       newInput.id = 'file-input';
-      newInput.accept = '.vkx,.fit,.gpx,.gz';
+      // No accept attribute - filtering done in JavaScript for mobile compatibility
       newInput.multiple = true;
       newInput.style.display = 'none';
       newInput.addEventListener('change', handleFileSelect);
@@ -4527,7 +4565,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
           <h3 style="margin:0;">Sessions Comparison (${ALL_SESSIONS.length} files)</h3>
           <div style="display:flex;align-items:center;gap:12px;">
-            <button class="btn btn-sm btn-start-replay" onclick="startRaceReplay()" ${selectedSessionsForReplay.size < 2 ? 'disabled title="Select at least 2 sessions"' : ''}>
+            <button class="btn btn-sm btn-start-replay" onclick="startRaceReplay()" ${selectedSessionsForReplay.size < 1 ? 'disabled title="Select at least 1 session"' : ''}>
               🏁 Start Race Replay (${selectedSessionsForReplay.size})
             </button>
             <label style="display:flex;align-items:center;gap:4px;font-size:0.75rem;cursor:pointer;">
@@ -5474,7 +5512,7 @@
     }
 
     function startRaceReplay() {
-      if (selectedSessionsForReplay.size < 2) return;
+      if (selectedSessionsForReplay.size < 1) return;
       
       raceReplayMode = true;
       playbackTime = getPlaybackStartTime();  // Start at latest trim start
@@ -5588,7 +5626,7 @@
       
       container.innerHTML = `
         <div class="race-replay-container" style="display:flex;align-items:center;gap:12px;flex-wrap:nowrap;">
-          <div class="race-replay-title">🏁 ${sessions.length} Boats</div>
+          <div class="race-replay-title">🏁 ${sessions.length} Boat${sessions.length !== 1 ? 's' : ''}</div>
           <button class="btn btn-play" id="playback-btn" onclick="togglePlayback()">▶ Play</button>
           <div style="display:flex;gap:2px;align-items:center;">
             <button class="speed-btn active" data-speed="1" onclick="setPlaybackSpeed(1)">1×</button>
@@ -7168,7 +7206,7 @@
                 <div><span style="color:#9ca3af;">Next</span> <span id="telem-leg-next">--</span></div>
               </div>
             </div>
-            <div id="video-distance-overlay" class="fs-widget${isFullscreen && widgetState['video-distance-overlay']?.dragged ? ' dragged' : ''}${isFullscreen && widgetState['video-distance-overlay']?.minimized ? ' minimized' : ''}" style="position:absolute;background:rgba(0,0,0,0.7);color:white;padding:6px 12px;border-radius:4px;font-size:14px;font-family:monospace;text-align:center;display:${isActive ? 'block' : 'none'};${isFullscreen && widgetState['video-distance-overlay']?.dragged ? `top:${widgetState['video-distance-overlay'].y}px;left:${widgetState['video-distance-overlay'].x}px;` : ''}">
+            <div id="video-distance-overlay" class="fs-widget${isFullscreen && widgetState['video-distance-overlay']?.dragged ? ' dragged' : ''}${isFullscreen && widgetState['video-distance-overlay']?.minimized ? ' minimized' : ''}" style="position:absolute;background:rgba(0,0,0,0.7);color:white;padding:6px 12px;border-radius:4px;font-size:14px;font-family:monospace;text-align:center;display:${isActive && getReplaySessions().length >= 2 ? 'block' : 'none'};${isFullscreen && widgetState['video-distance-overlay']?.dragged ? `top:${widgetState['video-distance-overlay'].y}px;left:${widgetState['video-distance-overlay'].x}px;` : ''}">
               <div class="fs-widget-header" style="text-align:left;">Distance <span class="fs-minimize-btn">${isFullscreen && widgetState['video-distance-overlay']?.minimized ? '▲' : '▼'}</span></div>
               <div class="fs-widget-content">
                 <span id="telem-distance">--</span>
@@ -7614,6 +7652,19 @@
       
       // Get first selected session for telemetry
       const sessions = getReplaySessions();
+      
+      // Hide/show boat 2 related elements based on session count
+      const leg2TelemPanel = document.getElementById('minimap-leg2-telemetry');
+      const distanceOverlay = document.getElementById('video-distance-overlay');
+      const hasTwoBoats = sessions.length >= 2;
+      
+      if (leg2TelemPanel) {
+        leg2TelemPanel.style.display = hasTwoBoats ? 'flex' : 'none';
+      }
+      if (distanceOverlay) {
+        distanceOverlay.style.display = hasTwoBoats ? 'block' : 'none';
+      }
+      
       if (sessions.length === 0) {
         if (sogEl) sogEl.textContent = '-.-';
         if (vmgEl) vmgEl.textContent = '-.-';
