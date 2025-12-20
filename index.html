@@ -833,7 +833,7 @@
                     <span class="btn btn-sm" style="background:#3b82f6;color:white;cursor:pointer;display:inline-block;" title="Select video files">
                       📄 Files
                     </span>
-                    <input type="file" id="video-file-input" multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0;" onchange="handleVideoFiles(event)">
+                    <input type="file" id="video-file-input" accept="video/*" multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0;" onchange="handleVideoFiles(event)">
                   </div>
                   <label class="btn btn-sm" style="background:#8b5cf6;color:white;cursor:pointer;" title="Select folder with videos">
                     📁 Folder
@@ -6710,20 +6710,38 @@
     }
     
     function handleVideoFiles(event) {
-      const files = event.target.files;
-      if (!files || files.length === 0) {
+      console.log('[Video] handleVideoFiles called');
+      const fileList = event.target.files;
+      if (!fileList || fileList.length === 0) {
+        console.log('[Video] No files in event');
         return;
       }
       
-      // Capture files immediately before resetting input
-      const filesCopy = Array.from(files);
+      console.log('[Video] Files:', fileList.length);
+      
+      // Must copy FileList before event exits (it becomes invalid after)
+      const files = [];
+      const len = fileList.length;
+      for (let i = 0; i < len; i++) {
+        files.push(fileList[i]);
+      }
+      
       const inputId = event.target.id;
       
-      // Reset input immediately to close file picker on mobile
+      // Reset input
       event.target.value = '';
       
-      // Process asynchronously to avoid freezing
-      setTimeout(() => processVideoFilesAsync(filesCopy, inputId), 50);
+      console.log('[Video] Files copied, scheduling processing');
+      
+      // Show loading
+      const p = document.getElementById('video-placeholder');
+      if (p) p.textContent = 'Loading ' + len + ' video(s)...';
+      
+      // Defer processing
+      setTimeout(function() {
+        console.log('[Video] Starting async processing');
+        processVideoFilesAsync(files, inputId);
+      }, 200);
     }
     
     function processVideoFilesAsync(files, inputId) {
@@ -6889,7 +6907,7 @@
         
         const videoData = {
           element: video,
-          file: file,  // Store file reference for lazy loading
+          file: file,  // Store actual File object for lazy loading
           filename: file.name,
           startTimestampMs: timestampMs,
           offsetMs: offsetMs,
