@@ -254,12 +254,16 @@
       position: absolute !important;
       width: 270px;
       height: 200px;
-      min-width: 200px;
+      min-width: 150px;
       min-height: 150px;
       background: rgba(0,0,0,0.7) !important;
       border-radius: 8px !important;
       padding: 8px !important;
       box-sizing: border-box !important;
+    }
+    
+    #video-wrapper:fullscreen #video-minimap-overlay.single-boat {
+      width: 180px;
     }
     
     #video-wrapper:fullscreen #video-minimap-overlay:not(.dragged) {
@@ -7462,11 +7466,11 @@
                 <span id="telem-distance">--</span>
               </div>
             </div>
-            <div id="video-minimap-overlay" class="fs-widget${isFullscreen && widgetState['video-minimap-overlay']?.dragged ? ' dragged' : ''}${isFullscreen && widgetState['video-minimap-overlay']?.minimized ? ' minimized' : ''}" style="${isFullscreen && widgetState['video-minimap-overlay']?.dragged ? `top:${widgetState['video-minimap-overlay'].y}px;left:${widgetState['video-minimap-overlay'].x}px;` : ''}">
+            <div id="video-minimap-overlay" class="fs-widget${getReplaySessions().length < 2 ? ' single-boat' : ''}${isFullscreen && widgetState['video-minimap-overlay']?.dragged ? ' dragged' : ''}${isFullscreen && widgetState['video-minimap-overlay']?.minimized ? ' minimized' : ''}" style="${isFullscreen && widgetState['video-minimap-overlay']?.dragged ? `top:${widgetState['video-minimap-overlay'].y}px;left:${widgetState['video-minimap-overlay'].x}px;` : ''}">
               <div class="fs-widget-header">Map <span class="fs-minimize-btn">${isFullscreen && widgetState['video-minimap-overlay']?.minimized ? '▲' : '▼'}</span></div>
               <div class="fs-widget-content" style="display:flex;gap:4px;height:calc(100% - 24px);">
                 <svg id="video-minimap-svg" style="display:block;flex:1;"></svg>
-                <div id="minimap-leg2-telemetry" style="flex-shrink:0;width:90px;color:white;font-size:9px;font-family:monospace;line-height:1.4;display:flex;flex-direction:column;justify-content:center;">
+                <div id="minimap-leg2-telemetry" style="flex-shrink:0;width:90px;color:white;font-size:9px;font-family:monospace;line-height:1.4;display:${getReplaySessions().length >= 2 ? 'flex' : 'none'};flex-direction:column;justify-content:center;">
                   <div id="telem-leg2-label" style="font-size:8px;margin-bottom:2px;">Boat 2 Leg</div>
                   <div><span style="color:#9ca3af;">SPD</span> <span id="telem-leg2-spd">-.-</span></div>
                   <div><span style="color:#9ca3af;">VMG</span> <span id="telem-leg2-vmg">-.-</span></div>
@@ -7906,6 +7910,7 @@
       // Hide/show boat 2 related elements based on session count
       const leg2TelemPanel = document.getElementById('minimap-leg2-telemetry');
       const distanceOverlay = document.getElementById('video-distance-overlay');
+      const minimapOverlay = document.getElementById('video-minimap-overlay');
       const hasTwoBoats = sessions.length >= 2;
       
       if (leg2TelemPanel) {
@@ -7913,6 +7918,14 @@
       }
       if (distanceOverlay) {
         distanceOverlay.style.display = hasTwoBoats ? 'block' : 'none';
+      }
+      // Toggle single-boat class on minimap for narrower width
+      if (minimapOverlay) {
+        if (hasTwoBoats) {
+          minimapOverlay.classList.remove('single-boat');
+        } else {
+          minimapOverlay.classList.add('single-boat');
+        }
       }
       
       if (sessions.length === 0) {
