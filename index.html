@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>File List</title>
+    <title>MP4 File List</title>
     <style>
         * {
             box-sizing: border-box;
@@ -26,8 +26,15 @@
         h1 {
             font-size: 24px;
             color: #1d1d1f;
-            margin-bottom: 20px;
+            margin-bottom: 8px;
             text-align: center;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #86868b;
+            text-align: center;
+            margin-bottom: 20px;
         }
 
         .select-btn {
@@ -41,7 +48,6 @@
             border: none;
             border-radius: 12px;
             cursor: pointer;
-            transition: background 0.2s;
         }
 
         .select-btn:active {
@@ -56,10 +62,21 @@
             margin-top: 24px;
         }
 
+        .file-list-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
         .file-list h2 {
             font-size: 18px;
             color: #1d1d1f;
-            margin-bottom: 12px;
+        }
+
+        .count {
+            font-size: 14px;
+            color: #86868b;
         }
 
         .file-list ul {
@@ -73,7 +90,7 @@
         .file-list li {
             padding: 14px 16px;
             border-bottom: 1px solid #e5e5e7;
-            font-size: 16px;
+            font-size: 15px;
             color: #1d1d1f;
             display: flex;
             justify-content: space-between;
@@ -83,6 +100,16 @@
 
         .file-list li:last-child {
             border-bottom: none;
+        }
+
+        .file-info {
+            flex: 1;
+        }
+
+        .file-size {
+            font-size: 13px;
+            color: #86868b;
+            margin-top: 2px;
         }
 
         .delete-btn {
@@ -97,10 +124,6 @@
             margin-left: 12px;
         }
 
-        .delete-btn:active {
-            background: #d63029;
-        }
-
         .empty-state {
             text-align: center;
             color: #86868b;
@@ -108,55 +131,111 @@
             font-size: 16px;
         }
 
-        .clear-all {
-            display: block;
-            width: 100%;
+        .actions {
+            display: flex;
+            gap: 10px;
             margin-top: 16px;
-            padding: 14px;
-            font-size: 16px;
-            color: #ff3b30;
-            background: white;
-            border: 1px solid #e5e5e7;
-            border-radius: 12px;
-            cursor: pointer;
         }
 
-        .clear-all:active {
+        .action-btn {
+            flex: 1;
+            padding: 14px;
+            font-size: 16px;
+            border-radius: 12px;
+            cursor: pointer;
+            border: 1px solid #e5e5e7;
+            background: white;
+        }
+
+        .action-btn.copy {
+            color: #007aff;
+        }
+
+        .action-btn.clear {
+            color: #ff3b30;
+        }
+
+        .action-btn:active {
             background: #f5f5f7;
         }
 
         .hidden {
             display: none;
         }
+
+        .toast {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1d1d1f;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 15px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📁 File List</h1>
+        <h1>🎬 MP4 File List</h1>
+        <p class="subtitle">Select multiple files to build a list</p>
         
-        <button class="select-btn" id="selectBtn">Select File</button>
-        <input type="file" id="fileInput" multiple>
+        <button class="select-btn" id="selectBtn">Select MP4 Files</button>
+        <input type="file" id="fileInput" multiple accept=".mp4,.MP4">
         
         <div class="file-list">
-            <h2>Selected Files</h2>
+            <div class="file-list-header">
+                <h2>Selected Files</h2>
+                <span class="count" id="count"></span>
+            </div>
             <div id="listContainer">
                 <div class="empty-state" id="emptyState">
                     No files selected yet
                 </div>
                 <ul id="fileList" class="hidden"></ul>
             </div>
-            <button class="clear-all hidden" id="clearAll">Clear All</button>
+            <div class="actions hidden" id="actions">
+                <button class="action-btn copy" id="copyBtn">Copy List</button>
+                <button class="action-btn clear" id="clearBtn">Clear All</button>
+            </div>
         </div>
     </div>
+
+    <div class="toast" id="toast">Copied to clipboard</div>
 
     <script>
         const selectBtn = document.getElementById('selectBtn');
         const fileInput = document.getElementById('fileInput');
         const fileList = document.getElementById('fileList');
         const emptyState = document.getElementById('emptyState');
-        const clearAllBtn = document.getElementById('clearAll');
+        const actions = document.getElementById('actions');
+        const copyBtn = document.getElementById('copyBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const countEl = document.getElementById('count');
+        const toast = document.getElementById('toast');
         
         let files = [];
+
+        function bytesToHuman(n) {
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+            return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+        }
+
+        function showToast(msg) {
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
 
         selectBtn.addEventListener('click', () => {
             fileInput.click();
@@ -166,16 +245,31 @@
             const selectedFiles = Array.from(e.target.files);
             
             selectedFiles.forEach(file => {
-                files.push(file.name);
+                // Avoid duplicates
+                if (!files.some(f => f.name === file.name && f.size === file.size)) {
+                    files.push({
+                        name: file.name,
+                        size: file.size
+                    });
+                }
             });
             
             renderList();
             fileInput.value = '';
         });
 
-        clearAllBtn.addEventListener('click', () => {
+        clearBtn.addEventListener('click', () => {
             files = [];
             renderList();
+        });
+
+        copyBtn.addEventListener('click', () => {
+            const text = files.map(f => f.name).join('\n');
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('Copied ' + files.length + ' filenames');
+            }).catch(() => {
+                showToast('Copy failed');
+            });
         });
 
         function deleteFile(index) {
@@ -183,29 +277,34 @@
             renderList();
         }
 
-        function renderList() {
-            if (files.length === 0) {
-                emptyState.classList.remove('hidden');
-                fileList.classList.add('hidden');
-                clearAllBtn.classList.add('hidden');
-            } else {
-                emptyState.classList.add('hidden');
-                fileList.classList.remove('hidden');
-                clearAllBtn.classList.remove('hidden');
-                
-                fileList.innerHTML = files.map((name, index) => `
-                    <li>
-                        <span>${escapeHtml(name)}</span>
-                        <button class="delete-btn" onclick="deleteFile(${index})">Delete</button>
-                    </li>
-                `).join('');
-            }
-        }
-
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function renderList() {
+            if (files.length === 0) {
+                emptyState.classList.remove('hidden');
+                fileList.classList.add('hidden');
+                actions.classList.add('hidden');
+                countEl.textContent = '';
+            } else {
+                emptyState.classList.add('hidden');
+                fileList.classList.remove('hidden');
+                actions.classList.remove('hidden');
+                countEl.textContent = files.length + ' file' + (files.length === 1 ? '' : 's');
+                
+                fileList.innerHTML = files.map((file, index) => `
+                    <li>
+                        <div class="file-info">
+                            <div>${escapeHtml(file.name)}</div>
+                            <div class="file-size">${bytesToHuman(file.size)}</div>
+                        </div>
+                        <button class="delete-btn" onclick="deleteFile(${index})">✕</button>
+                    </li>
+                `).join('');
+            }
         }
     </script>
 </body>
