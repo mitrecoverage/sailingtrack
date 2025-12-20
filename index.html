@@ -440,14 +440,16 @@
     /* Map and content flex container - no wrap to keep side-by-side layout */
     #map-and-content-card > .flex {
       flex-wrap: nowrap;
-      overflow: hidden;
+      overflow: visible;
     }
     
     /* Make map and video sections shrink proportionally */
     #map-container {
       flex: 0 0 auto;
-      width: 500px;
+      width: 520px;
+      min-width: 450px;
       position: relative;
+      overflow: visible;
     }
     
     #race-replay-right-column {
@@ -515,7 +517,7 @@
     .maneuver-banner { padding: 8px; border-radius: 6px; text-align: center; font-weight: 500; margin-top: 8px; }
     .maneuver-tack { background: #d1fae5; color: #065f46; }
     .maneuver-gybe { background: #fef3c7; color: #92400e; }
-    #map { border: 1px solid #e5e7eb; border-radius: 8px; background: #eff6ff; }
+    #map { border: 1px solid #e5e7eb; border-radius: 8px; background: #eff6ff; display: block; max-width: 100%; }
     .pos-breakdown { background: #f9fafb; border-radius: 8px; padding: 16px; }
     .pos-title { font-weight: 600; margin-bottom: 8px; }
     .pos-stat { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #e5e7eb; }
@@ -623,6 +625,7 @@
       #map-container {
         width: 100% !important;
         max-width: 100% !important;
+        min-width: 0 !important;
         flex: 0 0 auto !important;
       }
       
