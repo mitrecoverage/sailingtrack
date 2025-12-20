@@ -114,12 +114,12 @@
 <body>
   <h1>iOS Local Video Player — Telemetry</h1>
   <div class="note">
-    For very large files, iOS Safari can freeze when playing directly from a <span class="mono">blob:</span> URL.
-    This build tries a stronger approach: it uses a <b>Service Worker</b> to serve the selected file via <b>HTTP Range responses</b>
-    at <span class="mono">/__localvideo</span>, which often improves buffering on iOS.
+    This build uses a <b>Service Worker</b> to serve the selected file via <b>HTTP Range responses</b>.
+    On GitHub Pages (or any site hosted under a sub-path), it is critical that the video URL is <b>relative</b>
+    (no leading slash), otherwise the Service Worker won’t intercept it and iOS will show <span class="mono">SRC_NOT_SUPPORTED</span>.
     <br><br>
-    Requirements: must be hosted over <b>HTTPS</b> and needs two files: <span class="mono">index.html</span> and <span class="mono">sw.js</span>.
-    After first install, you may need a one-time reload for the page to be “controlled”.
+    Files needed in the same folder: <span class="mono">index.html</span> and <span class="mono">sw.js</span>.
+    Hosted over <b>HTTPS</b>. After first install, reload once.
   </div>
 
   <div class="row">
@@ -148,7 +148,6 @@
     const statusEl = document.getElementById("status");
     const warnEl = document.getElementById("warn");
 
-    let currentFile = null;
     let currentBlobUrl = null;
     let inOverlayFs = false;
 
@@ -200,7 +199,6 @@
       player.classList.remove("show-status");
     }
 
-    // Prevent scroll gestures in overlay fullscreen
     document.addEventListener("touchmove", (e) => {
       if (inOverlayFs) e.preventDefault();
     }, { passive: false });
@@ -225,14 +223,13 @@
         await navigator.serviceWorker.register("./sw.js", { scope: "./" });
         await navigator.serviceWorker.ready;
 
-        // If still not controlled, a one-time reload is typically required
         if (!navigator.serviceWorker.controller) {
-          setWarning("Service Worker installed. Please reload this page once, then try again (needed so it can serve video ranges).", true);
+          setWarning("Service Worker installed. Reload this page once, then pick the file again.", true);
           return false;
         }
         return true;
       } catch (e) {
-        setWarning("Service Worker install failed (must be HTTPS). Falling back to blob URL (may freeze on big files).", true);
+        setWarning("Service Worker install failed (must be HTTPS). Falling back to blob URL.", true);
         return false;
       }
     }
@@ -265,31 +262,28 @@
     }
 
     function setVideoSrcRange() {
-      // Cache-bust param is useful to avoid any odd caching
+      // IMPORTANT: relative URL so it stays inside the SW scope (GitHub Pages etc.)
       const ts = Date.now();
-      video.src = `/__localvideo?ts=${ts}`;
+      video.src = `./__localvideo?ts=${ts}`;
       video.load();
-      showStatus("Using Service Worker range source: /__localvideo");
+      showStatus("Using Service Worker range source: ./__localvideo");
     }
 
     picker.addEventListener("change", async () => {
       const file = picker.files && picker.files[0];
       if (!file) return;
-      currentFile = file;
 
       const type = file.type || "unknown";
       meta.innerHTML = `Selected: <span class="mono">${file.name}</span> • ${bytesToHuman(file.size)} • <span class="mono">${type}</span>`;
       fsBtn.disabled = false;
 
-      // Big-file hint
-      const BIG = 500 * 1024 * 1024; // 500 MB heuristic
+      const BIG = 500 * 1024 * 1024;
       if (file.size >= BIG) {
-        setWarning(`Large file detected (${bytesToHuman(file.size)}). This page will try Service Worker range playback to prevent freezing.`, true);
+        setWarning(`Large file detected (${bytesToHuman(file.size)}). Trying range playback via Service Worker.`, true);
       } else {
         setWarning("", false);
       }
 
-      // Try to use SW-range mode; fallback to blob if not possible
       const swOk = await ensureServiceWorker();
       if (swOk) {
         const setOk = await sendFileToSW(file);
