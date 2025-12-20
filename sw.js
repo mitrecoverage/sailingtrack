@@ -1,18 +1,19 @@
-// sw.js — Serve the picked File with HTTP Range responses
-// IMPORTANT: For GitHub Pages / sub-path hosting, the request URL will look like /<repo>/__localvideo
-// So we match by pathname suffix.
+// sw.js - Serve local video files with HTTP Range responses for iOS compatibility
 
 const filesByClient = new Map();
 
-self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
-self.addEventListener("message", (event) => {
+self.addEventListener('message', (event) => {
   const data = event.data || {};
-  if (data.type === "SET_FILE") {
+  if (data.type === 'SET_FILE') {
     filesByClient.set(event.source.id, data.file);
-    if (event.ports && event.ports[0]) event.ports[0].postMessage({ type: "FILE_SET" });
-    else event.source.postMessage({ type: "FILE_SET" });
+    if (event.ports && event.ports[0]) {
+      event.ports[0].postMessage({ type: 'FILE_SET' });
+    } else {
+      event.source.postMessage({ type: 'FILE_SET' });
+    }
   }
 });
 
@@ -22,7 +23,7 @@ function parseRange(rangeHeader, size) {
   if (!m) return null;
 
   let start = m[1] ? parseInt(m[1], 10) : NaN;
-  let end   = m[2] ? parseInt(m[2], 10) : NaN;
+  let end = m[2] ? parseInt(m[2], 10) : NaN;
 
   if (Number.isNaN(start) && !Number.isNaN(end)) {
     const suffix = end;
@@ -37,30 +38,31 @@ function parseRange(rangeHeader, size) {
   return { start, end };
 }
 
-self.addEventListener("fetch", (event) => {
+self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Match /__localvideo at any path depth (e.g., /repo/__localvideo)
-  if (!url.pathname.endsWith("/__localvideo")) return;
+  // Match /__localvideo at any path depth
+  if (!url.pathname.endsWith('/__localvideo')) return;
 
   event.respondWith((async () => {
     const file = filesByClient.get(event.clientId);
-    if (!file) return new Response("No file set for this tab. Reload and pick again.", { status: 404 });
+    if (!file) {
+      return new Response('No file set. Please select a file.', { status: 404 });
+    }
 
     const size = file.size;
-    const type = file.type || "video/mp4";
-    const rangeHeader = event.request.headers.get("Range");
+    const type = file.type || 'video/mp4';
+    const rangeHeader = event.request.headers.get('Range');
     const range = parseRange(rangeHeader, size);
 
-    // NOTE: Some iOS versions behave better if Accept-Ranges is present on both 200 and 206.
     if (!range) {
       return new Response(file, {
         status: 200,
         headers: {
-          "Content-Type": type,
-          "Content-Length": String(size),
-          "Accept-Ranges": "bytes",
-          "Cache-Control": "no-store",
+          'Content-Type': type,
+          'Content-Length': String(size),
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'no-store',
         },
       });
     }
@@ -71,11 +73,11 @@ self.addEventListener("fetch", (event) => {
     return new Response(chunk, {
       status: 206,
       headers: {
-        "Content-Type": type,
-        "Content-Length": String(end - start + 1),
-        "Content-Range": `bytes ${start}-${end}/${size}`,
-        "Accept-Ranges": "bytes",
-        "Cache-Control": "no-store",
+        'Content-Type': type,
+        'Content-Length': String(end - start + 1),
+        'Content-Range': `bytes ${start}-${end}/${size}`,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-store',
       },
     });
   })());
