@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Local Video Player (iOS) — Telemetry Overlay (Less Freezing)</title>
+  <title>Local Video Player (iOS) — Overlay / Native Fullscreen Toggle</title>
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -15,7 +15,7 @@
     h1 { font-size: 20px; margin: 0 0 10px; }
     .note { font-size: 13px; opacity: 0.82; margin: 8px 0 14px; max-width: 860px; }
     .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-    input[type="file"], button { font-size: 16px; }
+    input[type="file"], button, label { font-size: 16px; }
     button {
       padding: 10px 14px;
       border-radius: 10px;
@@ -25,6 +25,14 @@
       -webkit-tap-highlight-color: transparent;
     }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(127,127,127,0.25);
+    }
 
     #player {
       position: relative;
@@ -78,13 +86,13 @@
     }
     #player.show-status #status { display: block; }
 
-    /* Fake fullscreen */
+    /* Fake fullscreen (overlay-visible mode) */
     #player.fake-fullscreen {
       position: fixed;
       inset: 0;
       width: 100vw;
-      height: 100dvh; /* modern iOS */
-      height: calc(var(--vh, 1vh) * 100); /* fallback */
+      height: 100dvh;
+      height: calc(var(--vh, 1vh) * 100);
       max-width: none;
       margin: 0;
       border-radius: 0;
@@ -119,27 +127,33 @@
 </head>
 
 <body>
-  <h1>Local Video Player (iOS) — Telemetry Overlay</h1>
+  <h1>Local Video Player (iOS)</h1>
+
   <div class="note">
-    If playback “buffers” after ~10 seconds, it’s usually either (a) the video bitrate/codec is too heavy for inline playback,
-    or (b) the file source is slow (external drive / cloud provider via Files). This version reduces UI/scroll tricks during playback
-    (which can trigger iOS inline-video glitches) and shows buffer info.
+    If your Insta360 1080p MP4 buffers forever with <b>ahead≈0.1s</b> in <b>overlay mode</b>, it usually means iOS Safari
+    can’t keep decoding/feeding the file in <b>inline</b> playback (often due to HEVC/high bitrate/variable frame-rate).
+    Use the toggle below to test <b>Native Fullscreen (best playback)</b>. Native fullscreen can’t show HTML overlay.
   </div>
 
   <div class="row">
     <input id="picker" type="file" accept="video/*" />
-    <button id="fsBtn" disabled>Fullscreen (with telemetry)</button>
+    <button id="playBtn" disabled>Play</button>
+
+    <label class="toggle">
+      <input id="nativeToggle" type="checkbox" />
+      <span>Native Fullscreen (best playback)</span>
+    </label>
   </div>
 
-  <!-- Scroll shim used briefly to collapse the iOS browser bars -->
+  <!-- Scroll shim used briefly to collapse iOS browser bars in overlay mode -->
   <div id="scrollShim" aria-hidden="true" style="height:0;"></div>
 
   <div id="player" aria-label="Video player">
     <div id="overlay">telemetry</div>
     <div id="status">buffering…</div>
-    <button id="exitBtn" type="button" aria-label="Exit fullscreen">Done</button>
+    <button id="exitBtn" type="button" aria-label="Exit overlay fullscreen">Done</button>
 
-    <!-- Inline playback is required for HTML overlay; native fullscreen would hide overlay -->
+    <!-- Start in overlay-friendly inline mode. If user selects native mode, we remove playsinline at runtime. -->
     <video id="video" controls playsinline webkit-playsinline preload="auto"></video>
   </div>
 
@@ -149,14 +163,15 @@
     const picker = document.getElementById("picker");
     const player = document.getElementById("player");
     const video  = document.getElementById("video");
-    const fsBtn  = document.getElementById("fsBtn");
+    const playBtn  = document.getElementById("playBtn");
     const exitBtn = document.getElementById("exitBtn");
     const meta = document.getElementById("meta");
     const scrollShim = document.getElementById("scrollShim");
     const statusEl = document.getElementById("status");
+    const nativeToggle = document.getElementById("nativeToggle");
 
     let currentUrl = null;
-    let inFakeFs = false;
+    let inOverlayFs = false;
 
     function bytesToHuman(n) {
       if (!Number.isFinite(n)) return "";
@@ -173,40 +188,34 @@
     setVhVar();
     window.addEventListener("resize", setVhVar);
 
-    // Prevent scrolling while in fake fullscreen (without using position:fixed on body)
+    // Prevent scroll only during overlay fullscreen (keeps UI stable)
     function preventScroll(e) {
-      if (inFakeFs) e.preventDefault();
+      if (inOverlayFs) e.preventDefault();
     }
     document.addEventListener("touchmove", preventScroll, { passive: false });
 
     function collapseBrowserUIOnce() {
-      // Give just enough scroll room to let iOS collapse bars, then remove it.
       scrollShim.style.height = "200vh";
       window.scrollTo(0, 0);
-
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           window.scrollTo(0, 1);
-
-          // After bars collapse, STOP doing any scroll hacks during playback.
           setTimeout(() => {
             scrollShim.style.height = "0";
-            // Keep the page at top-ish; avoid extra scrolling which can glitch video.
             window.scrollTo(0, 0);
           }, 350);
         });
       });
     }
 
-    function enterFakeFullscreen() {
-      inFakeFs = true;
+    function enterOverlayFullscreen() {
+      inOverlayFs = true;
       player.classList.add("fake-fullscreen");
-      // Allow iOS to collapse bars once, then we stop.
       collapseBrowserUIOnce();
     }
 
-    function exitFakeFullscreen() {
-      inFakeFs = false;
+    function exitOverlayFullscreen() {
+      inOverlayFs = false;
       player.classList.remove("fake-fullscreen");
       player.classList.remove("show-status");
       scrollShim.style.height = "0";
@@ -233,21 +242,16 @@
       player.classList.remove("show-status");
     }
 
-    // Gentle "unfreeze" attempts (best-effort; iOS sometimes needs a nudge)
+    // Best-effort recover
     let recoverTimer = null;
     function scheduleRecover() {
       clearTimeout(recoverTimer);
       recoverTimer = setTimeout(async () => {
         try {
           if (video.paused) return;
-          // Nudge: re-call play and tiny seek if needed
           await video.play();
-          if (video.readyState < 3) {
-            const t = video.currentTime;
-            video.currentTime = Math.max(0, t + 0.001);
-          }
         } catch (_) {}
-      }, 400);
+      }, 500);
     }
 
     picker.addEventListener("change", () => {
@@ -255,30 +259,63 @@
       if (!file) return;
 
       if (currentUrl) URL.revokeObjectURL(currentUrl);
-
       currentUrl = URL.createObjectURL(file);
+
+      // Reset video element to clear any stuck state
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+
       video.src = currentUrl;
       video.load();
 
-      fsBtn.disabled = false;
+      playBtn.disabled = false;
 
       const type = file.type || "unknown";
       meta.textContent = `Selected: ${file.name} • ${bytesToHuman(file.size)} • ${type}`;
     });
 
-    fsBtn.addEventListener("click", async () => {
+    async function playNativeFullscreen() {
+      // Native fullscreen: better decoder path on iOS, but overlay cannot show.
+      // Remove playsinline flags (some iOS versions still allow fullscreen even if present,
+      // but removing helps push native mode).
+      video.removeAttribute("playsinline");
+      video.removeAttribute("webkit-playsinline");
+
+      // Start playback first (user gesture); then request iOS fullscreen if possible.
+      await video.play();
+
+      if (video.webkitEnterFullscreen) {
+        try { video.webkitEnterFullscreen(); } catch (_) {}
+      }
+    }
+
+    async function playOverlayMode() {
+      // Ensure inline flags are present for overlay mode
+      video.setAttribute("playsinline", "");
+      video.setAttribute("webkit-playsinline", "");
+      enterOverlayFullscreen();
+      await video.play();
+    }
+
+    playBtn.addEventListener("click", async () => {
       try {
-        enterFakeFullscreen();
-        await video.play();
+        if (nativeToggle.checked) {
+          // Ensure we are not in overlay fullscreen
+          exitOverlayFullscreen();
+          await playNativeFullscreen();
+        } else {
+          await playOverlayMode();
+        }
       } catch (e) {
         console.log("Play blocked:", e);
       }
     });
 
-    exitBtn.addEventListener("click", () => exitFakeFullscreen());
-    video.addEventListener("ended", () => exitFakeFullscreen());
+    exitBtn.addEventListener("click", () => exitOverlayFullscreen());
+    video.addEventListener("ended", () => exitOverlayFullscreen());
 
-    // Buffer visibility + diagnostics
+    // Buffer diagnostics
     video.addEventListener("waiting", () => {
       const ahead = bufferAheadSeconds().toFixed(1);
       updateStatus(`buffering… ahead=${ahead}s`);
@@ -289,21 +326,10 @@
       updateStatus(`stalled… ahead=${ahead}s`);
       scheduleRecover();
     });
-    video.addEventListener("seeking", () => {
-      const ahead = bufferAheadSeconds().toFixed(1);
-      updateStatus(`seeking… ahead=${ahead}s`);
-    });
-    video.addEventListener("seeked", () => {
-      const ahead = bufferAheadSeconds().toFixed(1);
-      updateStatus(`seeked… ahead=${ahead}s`);
-      scheduleRecover();
-      setTimeout(() => hideStatus(), 600);
-    });
     video.addEventListener("playing", () => hideStatus());
     video.addEventListener("canplay", () => hideStatus());
     video.addEventListener("pause", () => hideStatus());
 
-    // Rotate: only update vh; do NOT do scroll hacks again (reduces glitches)
     window.addEventListener("orientationchange", () => {
       setTimeout(() => setVhVar(), 200);
     });
