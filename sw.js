@@ -8,12 +8,25 @@ self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim(
 self.addEventListener('message', (event) => {
   const data = event.data || {};
   if (data.type === 'SET_FILE') {
-    filesByClient.set(event.source.id, data.file);
-    if (event.ports && event.ports[0]) {
-      event.ports[0].postMessage({ type: 'FILE_SET' });
-    } else {
-      event.source.postMessage({ type: 'FILE_SET' });
+    const clientId = event.source.id;
+    // Store file with unique ID
+    if (!filesByClient.has(clientId)) {
+      filesByClient.set(clientId, new Map());
     }
+    filesByClient.get(clientId).set(data.fileId, data.file);
+    
+    if (event.ports && event.ports[0]) {
+      event.ports[0].postMessage({ type: 'FILE_SET', fileId: data.fileId });
+    } else {
+      event.source.postMessage({ type: 'FILE_SET', fileId: data.fileId });
+    }
+  } else if (data.type === 'REMOVE_FILE') {
+    const clientFiles = filesByClient.get(event.source.id);
+    if (clientFiles) {
+      clientFiles.delete(data.fileId);
+    }
+  } else if (data.type === 'CLEAR_FILES') {
+    filesByClient.delete(event.source.id);
   }
 });
 
@@ -45,7 +58,10 @@ self.addEventListener('fetch', (event) => {
   if (!url.pathname.endsWith('/__localvideo')) return;
 
   event.respondWith((async () => {
-    const file = filesByClient.get(event.clientId);
+    const fileId = url.searchParams.get('id');
+    const clientFiles = filesByClient.get(event.clientId);
+    const file = clientFiles ? clientFiles.get(fileId) : null;
+    
     if (!file) {
       return new Response('No file set. Please select a file.', { status: 404 });
     }
