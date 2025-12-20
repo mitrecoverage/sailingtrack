@@ -133,7 +133,7 @@
       bottom: auto;
       left: auto;
       right: auto;
-      transform: none;
+      /* transform handled by JS to preserve scale */
     }
     
     /* Minimized state - keep corner positions */
@@ -8265,8 +8265,11 @@
         const state = widgetState[widgetId];
         
         // Set transform origin based on widget position
-        // Telemetry is at top-right, others are at bottom
-        if (widgetId === 'video-telemetry-overlay') {
+        // For dragged widgets, use top-left since we position with top/left
+        // For non-dragged widgets, use their corner position
+        if (state && state.dragged) {
+          widget.style.transformOrigin = 'top left';
+        } else if (widgetId === 'video-telemetry-overlay') {
           widget.style.transformOrigin = 'top right';
         } else if (widgetId === 'video-leg-overlay') {
           widget.style.transformOrigin = 'bottom right';
@@ -8346,6 +8349,8 @@
           dragOffsetY = e.clientY - rect.top;
           
           widget.style.transition = 'none';
+          // Set transform origin to top-left for dragged widgets
+          widget.style.transformOrigin = 'top left';
         });
         
         // Touch events for mobile widget dragging
@@ -8367,6 +8372,8 @@
           dragOffsetY = touch.clientY - rect.top;
           
           widget.style.transition = 'none';
+          // Set transform origin to top-left for dragged widgets
+          widget.style.transformOrigin = 'top left';
         }, { passive: false });
         
         newHeader.addEventListener('touchend', (e) => {
@@ -8416,7 +8423,14 @@
           draggedWidget.style.left = x + 'px';
           draggedWidget.style.bottom = 'auto';
           draggedWidget.style.right = 'auto';
-          draggedWidget.style.transform = 'none';
+          
+          // Use top-left origin for dragged widgets and preserve scale
+          draggedWidget.style.transformOrigin = 'top left';
+          if (widgetScale !== 1.0) {
+            draggedWidget.style.transform = `scale(${widgetScale})`;
+          } else {
+            draggedWidget.style.transform = 'none';
+          }
           
           // Save position and dragged state
           widgetState[draggedWidget.id] = widgetState[draggedWidget.id] || {};
@@ -8450,7 +8464,14 @@
           draggedWidget.style.left = x + 'px';
           draggedWidget.style.bottom = 'auto';
           draggedWidget.style.right = 'auto';
-          draggedWidget.style.transform = 'none';
+          
+          // Use top-left origin for dragged widgets and preserve scale
+          draggedWidget.style.transformOrigin = 'top left';
+          if (widgetScale !== 1.0) {
+            draggedWidget.style.transform = `scale(${widgetScale})`;
+          } else {
+            draggedWidget.style.transform = 'none';
+          }
           
           // Save position and dragged state
           widgetState[draggedWidget.id] = widgetState[draggedWidget.id] || {};
@@ -8473,7 +8494,14 @@
           widget.style.left = state.x + 'px';
           widget.style.bottom = 'auto';
           widget.style.right = 'auto';
-          widget.style.transform = 'none';
+          // Set transform origin to top-left for dragged widgets
+          widget.style.transformOrigin = 'top left';
+          // Preserve scale transform
+          if (widgetScale !== 1.0) {
+            widget.style.transform = `scale(${widgetScale})`;
+          } else {
+            widget.style.transform = 'none';
+          }
         }
         
         widget.classList.toggle('minimized', state.minimized);
