@@ -5467,6 +5467,11 @@
         selectedSessionsForReplay.delete(idx);
       }
       renderComparison();
+      // Update video overlay visibility when sessions change in race replay mode
+      if (raceReplayMode) {
+        updateVideoTelemetry();
+        renderVideoMinimap();
+      }
     }
 
     function toggleAllSessionsForReplay(checked) {
@@ -5476,6 +5481,11 @@
         selectedSessionsForReplay.clear();
       }
       renderComparison();
+      // Update video overlay visibility when sessions change in race replay mode
+      if (raceReplayMode) {
+        updateVideoTelemetry();
+        renderVideoMinimap();
+      }
     }
 
     // Get the earliest real-world timestamp across all replay sessions (considering trim)
