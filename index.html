@@ -829,9 +829,9 @@
                   <span id="video-buffer-status"></span>
                 </div>
                 <div style="display:flex;align-items:center;gap:4px;">
-                  <label class="btn btn-sm" style="background:#3b82f6;color:white;cursor:pointer;" title="Select video files">
+                  <label class="btn btn-sm" style="background:#3b82f6;color:white;cursor:pointer;position:relative;overflow:hidden;" title="Select video files">
                     📄 Files
-                    <input type="file" id="video-file-input" accept="video/*" multiple style="display:none;" onchange="handleVideoFiles(event)">
+                    <input type="file" id="video-file-input" multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;" onchange="handleVideoFiles(event)">
                   </label>
                   <label class="btn btn-sm" style="background:#8b5cf6;color:white;cursor:pointer;" title="Select folder with videos">
                     📁 Folder
@@ -4476,7 +4476,7 @@
       const container = document.getElementById('comparison-section');
       if (!container) return;
       
-      if (ALL_SESSIONS.length <= 1) {
+      if (ALL_SESSIONS.length < 1) {
         container.classList.add('hidden');
         return;
       }
@@ -6702,12 +6702,20 @@
       // Check if this is a folder selection
       const isFolderSelection = event.target.id === 'video-folder-input';
       
-      // Filter for video files only (for folder selection)
-      let videoFiles = Array.from(files).filter(file => {
-        const isVideo = file.type.startsWith('video/') || 
-                        /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(file.name);
-        return isVideo;
-      });
+      let videoFiles;
+      
+      if (isFolderSelection) {
+        // For folder selection, filter for video files
+        videoFiles = Array.from(files).filter(file => {
+          const isVideoType = file.type && file.type.startsWith('video/');
+          const name = file.name.toLowerCase();
+          const isVideoExt = /\.(mp4|mov|avi|mkv|webm|m4v|3gp|3g2)$/.test(name);
+          return isVideoType || isVideoExt;
+        });
+      } else {
+        // For direct file selection, accept all files (user explicitly chose them)
+        videoFiles = Array.from(files);
+      }
       
       if (videoFiles.length === 0) {
         alert('No video files found in selection.');
