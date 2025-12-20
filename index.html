@@ -446,8 +446,8 @@
     /* Make map and video sections shrink proportionally */
     #map-container {
       flex: 0 0 auto;
-      width: 520px;
-      min-width: 450px;
+      width: 500px;
+      min-width: 350px;
       position: relative;
       overflow: visible;
     }
@@ -790,7 +790,7 @@
             <!-- Legend overlay (fixed position, not affected by zoom) -->
             <div id="map-legend" style="position: absolute; top: 8px; left: 8px; font-size: 11px; pointer-events: none; background: rgba(255,255,255,0.9); padding: 8px 12px; border-radius: 6px;"></div>
             <!-- Wind indicator overlay (fixed position) -->
-            <div id="map-wind" style="position: absolute; top: 8px; right: 8px; text-align: center; pointer-events: none; background: rgba(255,255,255,0.85); padding: 4px; border-radius: 4px;"></div>
+            <div id="map-wind" style="position: absolute; top: 8px; right: 35px; text-align: center; pointer-events: none; background: rgba(255,255,255,0.85); padding: 4px; border-radius: 4px;"></div>
             <!-- Projection toggle -->
             <div style="position: absolute; bottom: 45px; left: 10px; font-size: 8px; display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.85); padding: 3px 6px; border-radius: 4px;">
               <span id="proj-label" style="color: #666;" title="Compass: angles as sailed. Geo: true geography">Compass</span>
@@ -810,8 +810,8 @@
               </label>
             </div>
             <!-- Zoom indicator -->
-            <div id="map-zoom-indicator" style="position: absolute; bottom: 45px; right: 12px; font-size: 9px; color: #666;"></div>
-            <div style="position: absolute; bottom: 10px; right: 10px; display: flex; flex-direction: column; gap: 4px;">
+            <div id="map-zoom-indicator" style="position: absolute; bottom: 45px; right: 40px; font-size: 9px; color: #666;"></div>
+            <div style="position: absolute; bottom: 10px; right: 35px; display: flex; flex-direction: column; gap: 4px;">
               <button class="zoom-btn" onclick="zoomMap(1.5)" title="Zoom In">+</button>
               <button class="zoom-btn" onclick="zoomMap(1/1.5)" title="Zoom Out">−</button>
               <button class="zoom-btn" onclick="resetMapZoom()" title="Reset">⟲</button>
@@ -2783,7 +2783,7 @@
     function fitMapToTrimmedTrack() {
       if (!DATA.track || DATA.track.length < 2) return;
       
-      const width = 350, height = 350, padding = 30;
+      const width = 350, height = 350, padding = 20;
       
       // Get overall map bounds (from original track)
       const trackForBounds = DATA.originalTrack || DATA.track;
@@ -2830,7 +2830,7 @@
       const points = DATA.track.filter(p => p.t >= leg.start && p.t <= leg.end);
       if (points.length < 2) return;
       
-      const width = 350, height = 350, padding = 30;
+      const width = 350, height = 350, padding = 20;
       
       // Get overall map bounds - MUST match renderMap bounds calculation
       const trackForBounds = DATA.originalTrack || DATA.track;
@@ -2871,7 +2871,7 @@
 
     function renderMap() {
       const svg = document.getElementById('map');
-      const width = 350, height = 350, padding = 30;
+      const width = 350, height = 350, padding = 20;
 
       // === RACE REPLAY MODE ===
       if (raceReplayMode) {
