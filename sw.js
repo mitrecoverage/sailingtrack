@@ -1,32 +1,22 @@
-// sw.js — Serve the picked File with HTTP Range responses at /__localvideo
-// NOTE: Must be served over HTTPS and controlled (reload after first install).
+// sw.js — Serve the picked File with HTTP Range responses
+// IMPORTANT: For GitHub Pages / sub-path hosting, the request URL will look like /<repo>/__localvideo
+// So we match by pathname suffix.
 
 const filesByClient = new Map();
 
-self.addEventListener("install", (event) => {
-  // Activate quickly
-  self.skipWaiting();
-});
-
-self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
-});
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
 self.addEventListener("message", (event) => {
   const data = event.data || {};
   if (data.type === "SET_FILE") {
-    // Store per-client (tab)
     filesByClient.set(event.source.id, data.file);
-    if (event.ports && event.ports[0]) {
-      event.ports[0].postMessage({ type: "FILE_SET" });
-    } else {
-      event.source.postMessage({ type: "FILE_SET" });
-    }
+    if (event.ports && event.ports[0]) event.ports[0].postMessage({ type: "FILE_SET" });
+    else event.source.postMessage({ type: "FILE_SET" });
   }
 });
 
 function parseRange(rangeHeader, size) {
-  // Example: "bytes=0-1023"
   if (!rangeHeader) return null;
   const m = /bytes=(\d*)-(\d*)/i.exec(rangeHeader);
   if (!m) return null;
@@ -35,7 +25,6 @@ function parseRange(rangeHeader, size) {
   let end   = m[2] ? parseInt(m[2], 10) : NaN;
 
   if (Number.isNaN(start) && !Number.isNaN(end)) {
-    // suffix bytes: bytes=-500 (last 500 bytes)
     const suffix = end;
     start = Math.max(0, size - suffix);
     end = size - 1;
@@ -50,21 +39,21 @@ function parseRange(rangeHeader, size) {
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  if (url.pathname !== "/__localvideo") return;
+
+  // Match /__localvideo at any path depth (e.g., /repo/__localvideo)
+  if (!url.pathname.endsWith("/__localvideo")) return;
 
   event.respondWith((async () => {
     const file = filesByClient.get(event.clientId);
-    if (!file) {
-      return new Response("No file set for this tab. Reload and pick again.", { status: 404 });
-    }
+    if (!file) return new Response("No file set for this tab. Reload and pick again.", { status: 404 });
 
     const size = file.size;
     const type = file.type || "video/mp4";
     const rangeHeader = event.request.headers.get("Range");
     const range = parseRange(rangeHeader, size);
 
+    // NOTE: Some iOS versions behave better if Accept-Ranges is present on both 200 and 206.
     if (!range) {
-      // Full response
       return new Response(file, {
         status: 200,
         headers: {
