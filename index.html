@@ -1,328 +1,212 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>iOS Local Video Player — Telemetry + Range (Service Worker)</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 18px; line-height: 1.35; }
-    h1 { font-size: 20px; margin: 0 0 10px; }
-    .note { font-size: 13px; opacity: 0.85; margin: 8px 0 14px; max-width: 920px; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    input[type="file"], button { font-size: 16px; }
-    button {
-      padding: 10px 14px;
-      border-radius: 10px;
-      border: 1px solid rgba(127,127,127,0.35);
-      background: transparent;
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-    }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>File List</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-    #player {
-      position: relative;
-      width: 100%;
-      max-width: 920px;
-      margin-top: 14px;
-      border-radius: 14px;
-      overflow: hidden;
-      border: 1px solid rgba(127,127,127,0.25);
-      background: #000;
-    }
-    video { display: block; width: 100%; height: auto; background: #000; }
-    #overlay {
-      position: absolute;
-      top: 12px;
-      left: 12px;
-      z-index: 10;
-      padding: 8px 10px;
-      border-radius: 10px;
-      background: rgba(0,0,0,0.55);
-      color: #fff;
-      font-size: 16px;
-      pointer-events: none;
-      user-select: none;
-    }
-    #status {
-      position: absolute;
-      bottom: 12px;
-      left: 12px;
-      right: 12px;
-      z-index: 10;
-      padding: 8px 10px;
-      border-radius: 10px;
-      background: rgba(0,0,0,0.45);
-      color: #fff;
-      font-size: 12px;
-      pointer-events: none;
-      user-select: none;
-      display: none;
-      white-space: pre-wrap;
-    }
-    #player.show-status #status { display: block; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f7;
+            min-height: 100vh;
+            padding: 20px;
+        }
 
-    /* Fake fullscreen so the overlay stays visible */
-    #player.fake-fullscreen {
-      position: fixed;
-      inset: 0;
-      width: 100vw;
-      height: 100dvh;
-      height: calc(var(--vh, 1vh) * 100);
-      max-width: none;
-      margin: 0;
-      border-radius: 0;
-      border: none;
-      z-index: 9999;
-      background: #000;
-    }
-    #player.fake-fullscreen video { width: 100%; height: 100%; object-fit: contain; }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
 
-    #exitBtn {
-      position: absolute;
-      right: 12px;
-      top: 12px;
-      z-index: 11;
-      padding: 8px 10px;
-      border-radius: 10px;
-      border: 1px solid rgba(255,255,255,0.25);
-      background: rgba(0,0,0,0.45);
-      color: #fff;
-      font-size: 14px;
-      cursor: pointer;
-      display: none;
-    }
-    #player.fake-fullscreen #exitBtn { display: block; }
+        h1 {
+            font-size: 24px;
+            color: #1d1d1f;
+            margin-bottom: 20px;
+            text-align: center;
+        }
 
-    .meta { margin-top: 10px; font-size: 13px; opacity: 0.9; max-width: 920px; }
-    .warn {
-      margin-top: 10px;
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid rgba(255,165,0,0.35);
-      background: rgba(255,165,0,0.12);
-      max-width: 920px;
-      font-size: 13px;
-      display: none;
-    }
-    .warn.show { display: block; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
-  </style>
+        .select-btn {
+            display: block;
+            width: 100%;
+            padding: 16px 24px;
+            font-size: 17px;
+            font-weight: 600;
+            color: white;
+            background: #007aff;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .select-btn:active {
+            background: #0056b3;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .file-list {
+            margin-top: 24px;
+        }
+
+        .file-list h2 {
+            font-size: 18px;
+            color: #1d1d1f;
+            margin-bottom: 12px;
+        }
+
+        .file-list ul {
+            list-style: none;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .file-list li {
+            padding: 14px 16px;
+            border-bottom: 1px solid #e5e5e7;
+            font-size: 16px;
+            color: #1d1d1f;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            word-break: break-all;
+        }
+
+        .file-list li:last-child {
+            border-bottom: none;
+        }
+
+        .delete-btn {
+            background: #ff3b30;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 14px;
+            cursor: pointer;
+            flex-shrink: 0;
+            margin-left: 12px;
+        }
+
+        .delete-btn:active {
+            background: #d63029;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #86868b;
+            padding: 40px 20px;
+            font-size: 16px;
+        }
+
+        .clear-all {
+            display: block;
+            width: 100%;
+            margin-top: 16px;
+            padding: 14px;
+            font-size: 16px;
+            color: #ff3b30;
+            background: white;
+            border: 1px solid #e5e5e7;
+            border-radius: 12px;
+            cursor: pointer;
+        }
+
+        .clear-all:active {
+            background: #f5f5f7;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
 </head>
-
 <body>
-  <h1>iOS Local Video Player — Telemetry</h1>
-  <div class="note">
-    This build uses a <b>Service Worker</b> to serve the selected file via <b>HTTP Range responses</b>.
-    On GitHub Pages (or any site hosted under a sub-path), it is critical that the video URL is <b>relative</b>
-    (no leading slash), otherwise the Service Worker won’t intercept it and iOS will show <span class="mono">SRC_NOT_SUPPORTED</span>.
-    <br><br>
-    Files needed in the same folder: <span class="mono">index.html</span> and <span class="mono">sw.js</span>.
-    Hosted over <b>HTTPS</b>. After first install, reload once.
-  </div>
+    <div class="container">
+        <h1>📁 File List</h1>
+        
+        <button class="select-btn" id="selectBtn">Select File</button>
+        <input type="file" id="fileInput" multiple>
+        
+        <div class="file-list">
+            <h2>Selected Files</h2>
+            <div id="listContainer">
+                <div class="empty-state" id="emptyState">
+                    No files selected yet
+                </div>
+                <ul id="fileList" class="hidden"></ul>
+            </div>
+            <button class="clear-all hidden" id="clearAll">Clear All</button>
+        </div>
+    </div>
 
-  <div class="row">
-    <input id="picker" type="file" accept="video/*" />
-    <button id="fsBtn" disabled>Fullscreen (with telemetry)</button>
-  </div>
+    <script>
+        const selectBtn = document.getElementById('selectBtn');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const emptyState = document.getElementById('emptyState');
+        const clearAllBtn = document.getElementById('clearAll');
+        
+        let files = [];
 
-  <div id="warn" class="warn"></div>
+        selectBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
 
-  <div id="player" aria-label="Video player">
-    <div id="overlay">telemetry</div>
-    <div id="status"></div>
-    <button id="exitBtn" type="button" aria-label="Exit fullscreen">Done</button>
-    <video id="video" controls playsinline webkit-playsinline preload="auto"></video>
-  </div>
+        fileInput.addEventListener('change', (e) => {
+            const selectedFiles = Array.from(e.target.files);
+            
+            selectedFiles.forEach(file => {
+                files.push(file.name);
+            });
+            
+            renderList();
+            fileInput.value = '';
+        });
 
-  <div id="meta" class="meta"></div>
+        clearAllBtn.addEventListener('click', () => {
+            files = [];
+            renderList();
+        });
 
-  <script>
-    const picker = document.getElementById("picker");
-    const player = document.getElementById("player");
-    const video  = document.getElementById("video");
-    const fsBtn  = document.getElementById("fsBtn");
-    const exitBtn = document.getElementById("exitBtn");
-    const meta = document.getElementById("meta");
-    const statusEl = document.getElementById("status");
-    const warnEl = document.getElementById("warn");
-
-    let currentBlobUrl = null;
-    let inOverlayFs = false;
-
-    function setVhVar() {
-      const vh = window.innerHeight * 0.01;
-      document.documentElement.style.setProperty("--vh", `${vh}px`);
-    }
-    setVhVar();
-    window.addEventListener("resize", setVhVar);
-
-    function bytesToHuman(n) {
-      if (!Number.isFinite(n)) return "";
-      const units = ["B","KB","MB","GB","TB"];
-      let i = 0;
-      while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-      return `${n.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
-    }
-
-    function setWarning(text, show) {
-      warnEl.textContent = text || "";
-      warnEl.classList.toggle("show", !!show);
-    }
-
-    function errText() {
-      const e = video.error;
-      if (!e) return "none";
-      const code = e.code;
-      const map = {1:"ABORTED",2:"NETWORK",3:"DECODE",4:"SRC_NOT_SUPPORTED"};
-      return `${code} (${map[code] || "?"})`;
-    }
-
-    function bufferAheadSeconds() {
-      try {
-        const t = video.currentTime;
-        const b = video.buffered;
-        for (let i = 0; i < b.length; i++) {
-          const start = b.start(i), end = b.end(i);
-          if (t >= start && t <= end) return Math.max(0, end - t);
+        function deleteFile(index) {
+            files.splice(index, 1);
+            renderList();
         }
-      } catch (_) {}
-      return 0;
-    }
 
-    function showStatus(text) {
-      statusEl.textContent = text;
-      player.classList.add("show-status");
-    }
-    function hideStatus() {
-      player.classList.remove("show-status");
-    }
-
-    document.addEventListener("touchmove", (e) => {
-      if (inOverlayFs) e.preventDefault();
-    }, { passive: false });
-
-    function enterOverlayFullscreen() {
-      inOverlayFs = true;
-      player.classList.add("fake-fullscreen");
-    }
-    function exitOverlayFullscreen() {
-      inOverlayFs = false;
-      player.classList.remove("fake-fullscreen");
-      hideStatus();
-    }
-
-    async function ensureServiceWorker() {
-      if (!("serviceWorker" in navigator)) return false;
-
-      // If already controlled, great
-      if (navigator.serviceWorker.controller) return true;
-
-      try {
-        await navigator.serviceWorker.register("./sw.js", { scope: "./" });
-        await navigator.serviceWorker.ready;
-
-        if (!navigator.serviceWorker.controller) {
-          setWarning("Service Worker installed. Reload this page once, then pick the file again.", true);
-          return false;
+        function renderList() {
+            if (files.length === 0) {
+                emptyState.classList.remove('hidden');
+                fileList.classList.add('hidden');
+                clearAllBtn.classList.add('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+                fileList.classList.remove('hidden');
+                clearAllBtn.classList.remove('hidden');
+                
+                fileList.innerHTML = files.map((name, index) => `
+                    <li>
+                        <span>${escapeHtml(name)}</span>
+                        <button class="delete-btn" onclick="deleteFile(${index})">Delete</button>
+                    </li>
+                `).join('');
+            }
         }
-        return true;
-      } catch (e) {
-        setWarning("Service Worker install failed (must be HTTPS). Falling back to blob URL.", true);
-        return false;
-      }
-    }
 
-    async function sendFileToSW(file) {
-      if (!navigator.serviceWorker.controller) return false;
-
-      return new Promise((resolve) => {
-        const mc = new MessageChannel();
-        const timer = setTimeout(() => resolve(false), 2000);
-
-        mc.port1.onmessage = (e) => {
-          clearTimeout(timer);
-          resolve(!!(e.data && e.data.type === "FILE_SET"));
-        };
-
-        navigator.serviceWorker.controller.postMessage(
-          { type: "SET_FILE", file },
-          [mc.port2]
-        );
-      });
-    }
-
-    function setVideoSrcBlob(file) {
-      if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-      currentBlobUrl = URL.createObjectURL(file);
-      video.src = currentBlobUrl;
-      video.load();
-      showStatus("Using blob: URL (fallback).");
-    }
-
-    function setVideoSrcRange() {
-      // IMPORTANT: relative URL so it stays inside the SW scope (GitHub Pages etc.)
-      const ts = Date.now();
-      video.src = `./__localvideo?ts=${ts}`;
-      video.load();
-      showStatus("Using Service Worker range source: ./__localvideo");
-    }
-
-    picker.addEventListener("change", async () => {
-      const file = picker.files && picker.files[0];
-      if (!file) return;
-
-      const type = file.type || "unknown";
-      meta.innerHTML = `Selected: <span class="mono">${file.name}</span> • ${bytesToHuman(file.size)} • <span class="mono">${type}</span>`;
-      fsBtn.disabled = false;
-
-      const BIG = 500 * 1024 * 1024;
-      if (file.size >= BIG) {
-        setWarning(`Large file detected (${bytesToHuman(file.size)}). Trying range playback via Service Worker.`, true);
-      } else {
-        setWarning("", false);
-      }
-
-      const swOk = await ensureServiceWorker();
-      if (swOk) {
-        const setOk = await sendFileToSW(file);
-        if (setOk) setVideoSrcRange();
-        else {
-          setWarning("Could not hand the file to the Service Worker. Falling back to blob URL.", true);
-          setVideoSrcBlob(file);
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
-      } else {
-        setVideoSrcBlob(file);
-      }
-    });
-
-    fsBtn.addEventListener("click", async () => {
-      try {
-        enterOverlayFullscreen();
-        await video.play();
-      } catch (e) {
-        console.log("Play blocked:", e);
-      }
-    });
-
-    exitBtn.addEventListener("click", () => exitOverlayFullscreen());
-    video.addEventListener("ended", () => exitOverlayFullscreen());
-
-    video.addEventListener("waiting", () => {
-      showStatus(`waiting…  t=${video.currentTime.toFixed(2)}s  ahead=${bufferAheadSeconds().toFixed(2)}s  ready=${video.readyState}  net=${video.networkState}  err=${errText()}`);
-    });
-    video.addEventListener("stalled", () => {
-      showStatus(`stalled…  t=${video.currentTime.toFixed(2)}s  ahead=${bufferAheadSeconds().toFixed(2)}s  ready=${video.readyState}  net=${video.networkState}  err=${errText()}`);
-    });
-    video.addEventListener("error", () => {
-      showStatus(`error!  t=${video.currentTime.toFixed(2)}s  ahead=${bufferAheadSeconds().toFixed(2)}s  ready=${video.readyState}  net=${video.networkState}  err=${errText()}`);
-    });
-    video.addEventListener("playing", () => hideStatus());
-
-    window.addEventListener("beforeunload", () => {
-      if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-    });
-  </script>
+    </script>
 </body>
 </html>
