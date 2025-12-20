@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Local Video Player (iOS) — Telemetry Overlay</title>
+  <title>Local Video Player (iOS) — Telemetry Overlay (Fake Fullscreen + Collapse Bars)</title>
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -62,10 +62,13 @@
     }
 
     /* Fake fullscreen: keeps HTML overlay visible on iOS */
+    /* NOTE: We intentionally DO NOT disable vertical scrolling, because iOS collapses
+       the browser bars only after a scroll. We just hide horizontal overflow. */
     body.fs-lock {
-      overflow: hidden;
-      touch-action: none;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
     }
+
     #player.fake-fullscreen {
       position: fixed;
       inset: 0;
@@ -79,6 +82,7 @@
       z-index: 9999;
       background: #000;
     }
+
     #player.fake-fullscreen video {
       width: 100%;
       height: 100%;
@@ -110,14 +114,18 @@
 <body>
   <h1>Local Video Player (iOS) — Telemetry Overlay</h1>
   <div class="note">
-    iOS “native fullscreen” video is a separate system player layer, so HTML overlays disappear.
-    This page uses an in-page “fake fullscreen” so the overlay stays visible.
+    This version uses “fake fullscreen” (CSS fixed overlay) so the telemetry label stays visible.
+    It also performs a tiny scroll to encourage iOS to collapse the browser bars after entering fullscreen
+    and after rotating the device.
   </div>
 
   <div class="row">
     <input id="picker" type="file" accept="video/*" />
     <button id="fsBtn" disabled>Fullscreen (with telemetry)</button>
   </div>
+
+  <!-- Scroll shim: we temporarily make the page scrollable so iOS can collapse the address bar -->
+  <div id="scrollShim" aria-hidden="true" style="height:0;"></div>
 
   <div id="player" aria-label="Video player">
     <div id="overlay">telemetry</div>
@@ -136,6 +144,7 @@
     const fsBtn  = document.getElementById("fsBtn");
     const exitBtn = document.getElementById("exitBtn");
     const meta = document.getElementById("meta");
+    const scrollShim = document.getElementById("scrollShim");
 
     let currentUrl = null;
 
@@ -147,7 +156,7 @@
       return `${n.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
     }
 
-    // iOS viewport helper
+    // Viewport helper (some iOS versions reflow on rotation / address bar changes)
     function setVhVar() {
       const vh = window.innerHeight * 0.01;
       document.documentElement.style.setProperty("--vh", `${vh}px`);
@@ -155,14 +164,34 @@
     setVhVar();
     window.addEventListener("resize", setVhVar);
 
+    function collapseBrowserUI() {
+      // Provide scroll room; iOS collapses browser UI after scrolling.
+      scrollShim.style.height = "200vh";
+
+      // Ensure we're at top first
+      window.scrollTo(0, 0);
+
+      // Nudge scroll by 1px on the next frames
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.scrollTo(0, 1);
+        });
+      });
+    }
+
     function enterFakeFullscreen() {
       document.body.classList.add("fs-lock");
       player.classList.add("fake-fullscreen");
+      collapseBrowserUI();
     }
 
     function exitFakeFullscreen() {
       document.body.classList.remove("fs-lock");
       player.classList.remove("fake-fullscreen");
+
+      // Optional: remove scroll space and return to top
+      scrollShim.style.height = "0";
+      window.scrollTo(0, 0);
     }
 
     picker.addEventListener("change", () => {
@@ -198,6 +227,17 @@
       exitFakeFullscreen();
     });
 
+    // Try again after rotation (iOS often expands bars on orientation change)
+    window.addEventListener("orientationchange", () => {
+      setTimeout(() => {
+        if (player.classList.contains("fake-fullscreen")) {
+          setVhVar();
+          collapseBrowserUI();
+        }
+      }, 250);
+    });
+
+    // Cleanup
     window.addEventListener("beforeunload", () => {
       if (currentUrl) URL.revokeObjectURL(currentUrl);
     });
