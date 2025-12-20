@@ -3,31 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>iOS Local Video Player — Big File Fallback</title>
+  <title>iOS Local Video Player — Telemetry + Range (Service Worker)</title>
   <style>
     :root { color-scheme: light dark; }
-    body {
-      font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif;
-      margin: 0;
-      padding: 18px;
-      line-height: 1.35;
-    }
+    body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 18px; line-height: 1.35; }
     h1 { font-size: 20px; margin: 0 0 10px; }
-    .note { font-size: 13px; opacity: 0.82; margin: 8px 0 14px; max-width: 920px; }
+    .note { font-size: 13px; opacity: 0.85; margin: 8px 0 14px; max-width: 920px; }
     .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    input[type="file"], button, a.btn { font-size: 16px; }
-    button, a.btn {
+    input[type="file"], button { font-size: 16px; }
+    button {
       padding: 10px 14px;
       border-radius: 10px;
       border: 1px solid rgba(127,127,127,0.35);
       background: transparent;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
-      color: inherit;
-      text-decoration: none;
-      display: inline-block;
     }
-    button:disabled, a.btn.disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     #player {
       position: relative;
@@ -40,7 +32,6 @@
       background: #000;
     }
     video { display: block; width: 100%; height: auto; background: #000; }
-
     #overlay {
       position: absolute;
       top: 12px;
@@ -54,7 +45,6 @@
       pointer-events: none;
       user-select: none;
     }
-
     #status {
       position: absolute;
       bottom: 12px;
@@ -73,6 +63,7 @@
     }
     #player.show-status #status { display: block; }
 
+    /* Fake fullscreen so the overlay stays visible */
     #player.fake-fullscreen {
       position: fixed;
       inset: 0;
@@ -112,8 +103,8 @@
       border: 1px solid rgba(255,165,0,0.35);
       background: rgba(255,165,0,0.12);
       max-width: 920px;
-      display: none;
       font-size: 13px;
+      display: none;
     }
     .warn.show { display: block; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
@@ -121,17 +112,19 @@
 </head>
 
 <body>
-  <h1>iOS Local Video Player</h1>
-
+  <h1>iOS Local Video Player — Telemetry</h1>
   <div class="note">
-    This page plays a picked local video. If the file is very large, iOS browsers can freeze when playing via HTML <span class="mono">&lt;video&gt;</span>
-    from a <span class="mono">blob:</span> URL. In that case, use <b>Open in system viewer</b> (no HTML overlay) or re-export a smaller “web friendly” version.
+    For very large files, iOS Safari can freeze when playing directly from a <span class="mono">blob:</span> URL.
+    This build tries a stronger approach: it uses a <b>Service Worker</b> to serve the selected file via <b>HTTP Range responses</b>
+    at <span class="mono">/__localvideo</span>, which often improves buffering on iOS.
+    <br><br>
+    Requirements: must be hosted over <b>HTTPS</b> and needs two files: <span class="mono">index.html</span> and <span class="mono">sw.js</span>.
+    After first install, you may need a one-time reload for the page to be “controlled”.
   </div>
 
   <div class="row">
     <input id="picker" type="file" accept="video/*" />
-    <button id="playOverlayBtn" disabled>Fullscreen (with telemetry)</button>
-    <a id="openExternal" class="btn disabled" href="#" target="_blank" rel="noopener">Open in system viewer</a>
+    <button id="fsBtn" disabled>Fullscreen (with telemetry)</button>
   </div>
 
   <div id="warn" class="warn"></div>
@@ -140,7 +133,7 @@
     <div id="overlay">telemetry</div>
     <div id="status"></div>
     <button id="exitBtn" type="button" aria-label="Exit fullscreen">Done</button>
-    <video id="video" controls playsinline webkit-playsinline preload="metadata"></video>
+    <video id="video" controls playsinline webkit-playsinline preload="auto"></video>
   </div>
 
   <div id="meta" class="meta"></div>
@@ -149,19 +142,15 @@
     const picker = document.getElementById("picker");
     const player = document.getElementById("player");
     const video  = document.getElementById("video");
-    const playOverlayBtn  = document.getElementById("playOverlayBtn");
-    const openExternal = document.getElementById("openExternal");
+    const fsBtn  = document.getElementById("fsBtn");
     const exitBtn = document.getElementById("exitBtn");
     const meta = document.getElementById("meta");
     const statusEl = document.getElementById("status");
     const warnEl = document.getElementById("warn");
 
-    // Keep a strong reference to the File to avoid iOS GC/handle weirdness on large files.
     let currentFile = null;
-    let currentUrl = null;
-
+    let currentBlobUrl = null;
     let inOverlayFs = false;
-    let tickTimer = null;
 
     function setVhVar() {
       const vh = window.innerHeight * 0.01;
@@ -178,6 +167,19 @@
       return `${n.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
     }
 
+    function setWarning(text, show) {
+      warnEl.textContent = text || "";
+      warnEl.classList.toggle("show", !!show);
+    }
+
+    function errText() {
+      const e = video.error;
+      if (!e) return "none";
+      const code = e.code;
+      const map = {1:"ABORTED",2:"NETWORK",3:"DECODE",4:"SRC_NOT_SUPPORTED"};
+      return `${code} (${map[code] || "?"})`;
+    }
+
     function bufferAheadSeconds() {
       try {
         const t = video.currentTime;
@@ -190,40 +192,18 @@
       return 0;
     }
 
-    function errText() {
-      const e = video.error;
-      if (!e) return "none";
-      const code = e.code; // 1 ABORTED, 2 NETWORK, 3 DECODE, 4 SRC_NOT_SUPPORTED
-      const map = {1:"ABORTED",2:"NETWORK",3:"DECODE",4:"SRC_NOT_SUPPORTED"};
-      return `${code} (${map[code] || "?"})`;
+    function showStatus(text) {
+      statusEl.textContent = text;
+      player.classList.add("show-status");
+    }
+    function hideStatus() {
+      player.classList.remove("show-status");
     }
 
-    function stateText(prefix = "") {
-      const line = `t=${video.currentTime.toFixed(2)}s | ahead=${bufferAheadSeconds().toFixed(2)}s | ready=${video.readyState} | net=${video.networkState} | err=${errText()}`;
-      return prefix ? `${prefix}\n${line}` : line;
-    }
-
-    function showStatus(on) {
-      if (on) player.classList.add("show-status");
-      else player.classList.remove("show-status");
-    }
-
-    function startTick() {
-      stopTick();
-      showStatus(true);
-      tickTimer = setInterval(() => {
-        statusEl.textContent = stateText();
-      }, 250);
-    }
-    function stopTick() {
-      if (tickTimer) clearInterval(tickTimer);
-      tickTimer = null;
-    }
-
-    function preventScroll(e) {
+    // Prevent scroll gestures in overlay fullscreen
+    document.addEventListener("touchmove", (e) => {
       if (inOverlayFs) e.preventDefault();
-    }
-    document.addEventListener("touchmove", preventScroll, { passive: false });
+    }, { passive: false });
 
     function enterOverlayFullscreen() {
       inOverlayFs = true;
@@ -232,66 +212,100 @@
     function exitOverlayFullscreen() {
       inOverlayFs = false;
       player.classList.remove("fake-fullscreen");
-      showStatus(false);
+      hideStatus();
     }
 
-    function enableExternalLink(url) {
-      openExternal.href = url;
-      openExternal.classList.remove("disabled");
-    }
-    function disableExternalLink() {
-      openExternal.href = "#";
-      openExternal.classList.add("disabled");
+    async function ensureServiceWorker() {
+      if (!("serviceWorker" in navigator)) return false;
+
+      // If already controlled, great
+      if (navigator.serviceWorker.controller) return true;
+
+      try {
+        await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+        await navigator.serviceWorker.ready;
+
+        // If still not controlled, a one-time reload is typically required
+        if (!navigator.serviceWorker.controller) {
+          setWarning("Service Worker installed. Please reload this page once, then try again (needed so it can serve video ranges).", true);
+          return false;
+        }
+        return true;
+      } catch (e) {
+        setWarning("Service Worker install failed (must be HTTPS). Falling back to blob URL (may freeze on big files).", true);
+        return false;
+      }
     }
 
-    function setWarning(text, show) {
-      warnEl.textContent = text || "";
-      warnEl.classList.toggle("show", !!show);
+    async function sendFileToSW(file) {
+      if (!navigator.serviceWorker.controller) return false;
+
+      return new Promise((resolve) => {
+        const mc = new MessageChannel();
+        const timer = setTimeout(() => resolve(false), 2000);
+
+        mc.port1.onmessage = (e) => {
+          clearTimeout(timer);
+          resolve(!!(e.data && e.data.type === "FILE_SET"));
+        };
+
+        navigator.serviceWorker.controller.postMessage(
+          { type: "SET_FILE", file },
+          [mc.port2]
+        );
+      });
     }
 
-    picker.addEventListener("change", () => {
+    function setVideoSrcBlob(file) {
+      if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+      currentBlobUrl = URL.createObjectURL(file);
+      video.src = currentBlobUrl;
+      video.load();
+      showStatus("Using blob: URL (fallback).");
+    }
+
+    function setVideoSrcRange() {
+      // Cache-bust param is useful to avoid any odd caching
+      const ts = Date.now();
+      video.src = `/__localvideo?ts=${ts}`;
+      video.load();
+      showStatus("Using Service Worker range source: /__localvideo");
+    }
+
+    picker.addEventListener("change", async () => {
       const file = picker.files && picker.files[0];
       if (!file) return;
-
-      // Keep file ref
       currentFile = file;
-
-      if (currentUrl) URL.revokeObjectURL(currentUrl);
-      currentUrl = URL.createObjectURL(file);
-
-      // Reset element to clear any stuck decoder state
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
-
-      video.src = currentUrl;
-      video.load();
-
-      playOverlayBtn.disabled = false;
-      enableExternalLink(currentUrl);
 
       const type = file.type || "unknown";
       meta.innerHTML = `Selected: <span class="mono">${file.name}</span> • ${bytesToHuman(file.size)} • <span class="mono">${type}</span>`;
+      fsBtn.disabled = false;
 
       // Big-file hint
       const BIG = 500 * 1024 * 1024; // 500 MB heuristic
       if (file.size >= BIG) {
-        setWarning(
-          `Large file detected (${bytesToHuman(file.size)}). If playback freezes in the browser, try “Open in system viewer” or re-export the clip to a smaller bitrate / web-friendly format.`,
-          true
-        );
+        setWarning(`Large file detected (${bytesToHuman(file.size)}). This page will try Service Worker range playback to prevent freezing.`, true);
       } else {
         setWarning("", false);
       }
 
-      statusEl.textContent = stateText();
-      showStatus(true);
+      // Try to use SW-range mode; fallback to blob if not possible
+      const swOk = await ensureServiceWorker();
+      if (swOk) {
+        const setOk = await sendFileToSW(file);
+        if (setOk) setVideoSrcRange();
+        else {
+          setWarning("Could not hand the file to the Service Worker. Falling back to blob URL.", true);
+          setVideoSrcBlob(file);
+        }
+      } else {
+        setVideoSrcBlob(file);
+      }
     });
 
-    playOverlayBtn.addEventListener("click", async () => {
+    fsBtn.addEventListener("click", async () => {
       try {
         enterOverlayFullscreen();
-        startTick();
         await video.play();
       } catch (e) {
         console.log("Play blocked:", e);
@@ -299,16 +313,21 @@
     });
 
     exitBtn.addEventListener("click", () => exitOverlayFullscreen());
+    video.addEventListener("ended", () => exitOverlayFullscreen());
 
-    // Events
-    video.addEventListener("playing", () => { statusEl.textContent = stateText("playing"); });
-    video.addEventListener("waiting", () => { statusEl.textContent = stateText("waiting…"); });
-    video.addEventListener("stalled", () => { statusEl.textContent = stateText("stalled…"); });
-    video.addEventListener("error", () => { statusEl.textContent = stateText("error!"); });
-    video.addEventListener("ended", () => { stopTick(); exitOverlayFullscreen(); });
+    video.addEventListener("waiting", () => {
+      showStatus(`waiting…  t=${video.currentTime.toFixed(2)}s  ahead=${bufferAheadSeconds().toFixed(2)}s  ready=${video.readyState}  net=${video.networkState}  err=${errText()}`);
+    });
+    video.addEventListener("stalled", () => {
+      showStatus(`stalled…  t=${video.currentTime.toFixed(2)}s  ahead=${bufferAheadSeconds().toFixed(2)}s  ready=${video.readyState}  net=${video.networkState}  err=${errText()}`);
+    });
+    video.addEventListener("error", () => {
+      showStatus(`error!  t=${video.currentTime.toFixed(2)}s  ahead=${bufferAheadSeconds().toFixed(2)}s  ready=${video.readyState}  net=${video.networkState}  err=${errText()}`);
+    });
+    video.addEventListener("playing", () => hideStatus());
 
     window.addEventListener("beforeunload", () => {
-      if (currentUrl) URL.revokeObjectURL(currentUrl);
+      if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
     });
   </script>
 </body>
