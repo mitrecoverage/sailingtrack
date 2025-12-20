@@ -576,6 +576,10 @@
       /* Tab navigation */
       .tabs { flex-wrap: wrap; gap: 4px; }
       .tab { padding: 8px 12px; font-size: 12px; }
+      
+      /* Hide folder picker on mobile - webkitdirectory not supported */
+      #video-folder-input { display: none !important; }
+      label[title="Select folder with videos"] { display: none !important; }
     }
     
     /* Fullscreen mobile adjustments */
@@ -641,7 +645,7 @@
         <div class="upload-icon">📁</div>
         <p style="font-size: 1.1rem; color: #374151; margin-bottom: 8px;">Drop your sailing data files here or click to browse</p>
         <p class="text-sm" style="color: #6b7280;">Supports Vakaros VKX, Garmin FIT, and GPX files • .vkx, .fit, .gpx, .gz</p>
-        <input type="file" id="file-input" accept=".vkx,.fit,.gpx,.gz" multiple style="display: none;">
+        <input type="file" id="file-input" multiple style="display: none;">
       </div>
       <div id="loading" class="loading hidden">
         <div class="spinner"></div>
@@ -789,7 +793,7 @@
                 <div style="display:flex;align-items:center;gap:4px;">
                   <label class="btn btn-sm" style="background:#3b82f6;color:white;cursor:pointer;" title="Select video files">
                     📄 Files
-                    <input type="file" id="video-file-input" accept="video/mp4,video/*" multiple style="display:none;" onchange="handleVideoFiles(event)">
+                    <input type="file" id="video-file-input" accept="video/*" multiple style="display:none;" onchange="handleVideoFiles(event)">
                   </label>
                   <label class="btn btn-sm" style="background:#8b5cf6;color:white;cursor:pointer;" title="Select folder with videos">
                     📁 Folder
@@ -4272,7 +4276,10 @@
     }
 
     function handleFileSelect(e) {
-      const files = e.target.files;
+      const files = Array.from(e.target.files).filter(f => {
+        const name = f.name.toLowerCase();
+        return name.endsWith('.vkx') || name.endsWith('.fit') || name.endsWith('.gpx') || name.endsWith('.gz');
+      });
       if (files.length > 0) processFiles(files);
     }
 
@@ -4296,8 +4303,10 @@
     uploadZone.addEventListener('drop', e => {
       e.preventDefault();
       uploadZone.classList.remove('dragover');
-      const files = Array.from(e.dataTransfer.files).filter(f => 
-        f.name.endsWith('.vkx') || f.name.endsWith('.fit') || f.name.endsWith('.gpx') || f.name.endsWith('.gz'));
+      const files = Array.from(e.dataTransfer.files).filter(f => {
+        const name = f.name.toLowerCase();
+        return name.endsWith('.vkx') || name.endsWith('.fit') || name.endsWith('.gpx') || name.endsWith('.gz');
+      });
       if (files.length > 0) processFiles(files);
     });
     
