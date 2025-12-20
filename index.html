@@ -91,6 +91,7 @@
       float: right;
       opacity: 0.7;
       font-size: 12px;
+      margin-left: 8px;
     }
     
     .fs-widget-header .fs-minimize-btn:hover {
@@ -124,6 +125,7 @@
     
     #video-wrapper:fullscreen .fs-widget {
       pointer-events: auto;
+      overflow: hidden;
     }
     
     #video-wrapper:fullscreen .fs-widget.dragged {
@@ -134,13 +136,38 @@
       transform: none;
     }
     
+    /* Minimized state - keep corner positions */
+    #video-wrapper:fullscreen .fs-widget.minimized .fs-widget-content {
+      display: none !important;
+    }
+    
+    /* Non-fullscreen widget positions */
+    #video-telemetry-overlay:not(.dragged) {
+      top: 8px;
+      right: 8px;
+    }
+    
+    #video-leg-overlay:not(.dragged) {
+      bottom: 40px;
+      right: 8px;
+    }
+    
+    #video-distance-overlay:not(.dragged) {
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    
     #video-wrapper:fullscreen #video-telemetry-overlay {
-      font-size: 32px !important;
       padding: 12px 20px !important;
     }
     
+    #video-wrapper:fullscreen #video-telemetry-overlay .fs-widget-content {
+      font-size: 28px !important;
+    }
+    
     #video-wrapper:fullscreen #video-telemetry-overlay:not(.dragged) {
-      top: 10%;
+      top: 15%;
       right: 8px;
     }
     
@@ -151,13 +178,22 @@
     }
     
     #video-wrapper:fullscreen #video-leg-overlay {
-      font-size: 28px !important;
       padding: 12px 20px !important;
     }
     
+    #video-wrapper:fullscreen #video-leg-overlay .fs-widget-content {
+      font-size: 28px !important;
+    }
+    
     #video-wrapper:fullscreen #video-leg-overlay:not(.dragged) {
-      bottom: 18%;
+      bottom: 15%;
       right: 8px;
+    }
+    
+    #video-wrapper:fullscreen #video-leg-overlay.minimized:not(.dragged) {
+      bottom: 15%;
+      right: 8px;
+      top: auto;
     }
     
     #video-wrapper:fullscreen #video-leg-overlay .fs-widget-header {
@@ -166,33 +202,40 @@
       font-size: 14px;
     }
     
-    #video-wrapper:fullscreen #video-leg-overlay > .fs-widget-content > div:first-child {
-      font-size: 18px !important;
-    }
-    
     #minimap-leg2-telemetry {
       display: none;
     }
     
     #video-wrapper:fullscreen #minimap-leg2-telemetry {
       display: flex !important;
-      font-size: 11px !important;
-      width: 75px !important;
+      font-size: 14px !important;
+      width: 90px !important;
     }
     
-    #video-wrapper:fullscreen #minimap-leg2-telemetry > div:first-child {
-      font-size: 10px !important;
+    #video-wrapper:fullscreen #telem-leg2-label {
+      font-size: 11px !important;
+      margin-bottom: 4px !important;
     }
     
     #video-wrapper:fullscreen #video-distance-overlay {
-      font-size: 36px !important;
       padding: 12px 24px !important;
     }
     
+    #video-wrapper:fullscreen #video-distance-overlay .fs-widget-content {
+      font-size: 28px !important;
+    }
+    
     #video-wrapper:fullscreen #video-distance-overlay:not(.dragged) {
-      bottom: 18%;
+      bottom: 15%;
       left: 50%;
       transform: translateX(-50%);
+    }
+    
+    #video-wrapper:fullscreen #video-distance-overlay.minimized:not(.dragged) {
+      bottom: 15%;
+      left: 50%;
+      transform: translateX(-50%);
+      top: auto;
     }
     
     #video-wrapper:fullscreen #video-distance-overlay .fs-widget-header {
@@ -209,8 +252,10 @@
     #video-wrapper:fullscreen #video-minimap-overlay {
       display: block !important;
       position: absolute !important;
-      width: 320px !important;
-      height: 200px !important;
+      width: 270px;
+      height: 200px;
+      min-width: 200px;
+      min-height: 150px;
       background: rgba(0,0,0,0.7) !important;
       border-radius: 8px !important;
       padding: 8px !important;
@@ -218,28 +263,42 @@
     }
     
     #video-wrapper:fullscreen #video-minimap-overlay:not(.dragged) {
-      bottom: 18%;
+      bottom: 15%;
       left: 8px;
+    }
+    
+    #video-wrapper:fullscreen #video-minimap-overlay.minimized:not(.dragged) {
+      bottom: 15%;
+      left: 8px;
+      top: auto;
     }
     
     #video-wrapper:fullscreen #video-minimap-overlay .fs-widget-header {
       margin: -8px -8px 4px -8px;
       padding: 2px 6px;
-      font-size: 11px;
+      font-size: 14px;
     }
     
     #video-wrapper:fullscreen #video-minimap-overlay.minimized {
       width: auto !important;
       height: auto !important;
+      min-width: auto !important;
+      min-height: auto !important;
+    }
+    
+    #video-wrapper:fullscreen #video-minimap-overlay.minimized .fs-widget-content {
+      display: none !important;
+      height: 0 !important;
     }
     
     #video-wrapper:fullscreen #video-minimap-overlay .fs-widget-content {
-      height: calc(100% - 20px);
+      height: calc(100% - 24px);
     }
     
     #video-wrapper:fullscreen #video-minimap-svg {
-      width: calc(100% - 80px) !important;
+      flex: 1;
       height: 100% !important;
+      min-width: 0;
     }
     
     #video-wrapper:fullscreen #video-time-display {
@@ -252,6 +311,10 @@
     
     #video-wrapper:fullscreen #video-fullscreen-btn {
       font-size: 22px !important;
+    }
+    
+    #video-wrapper:fullscreen .fs-overlay-btn {
+      display: inline-block !important;
     }
     
     #video-wrapper:fullscreen #video-replay-controls {
@@ -349,7 +412,9 @@
     
     /* Make map and video sections shrink proportionally */
     #map-container {
-      flex: 0 0 600px;
+      flex: 0 0 auto;
+      width: 500px;
+      position: relative;
     }
     
     #race-replay-right-column {
@@ -483,6 +548,88 @@
     .btn-start-replay { background: #22c55e; color: white; padding: 8px 16px; }
     .btn-start-replay:hover { background: #16a34a; }
     .btn-start-replay:disabled { background: #9ca3af; cursor: not-allowed; }
+    
+    /* Mobile-specific styles */
+    @media (max-width: 768px) {
+      .container { padding: 8px; }
+      .card { padding: 12px; margin-bottom: 12px; }
+      
+      /* Larger touch targets for buttons */
+      button, .speed-btn, .btn { min-height: 44px; min-width: 44px; }
+      .speed-btn { padding: 8px 12px; font-size: 14px; }
+      
+      /* Upload zone improvements */
+      .upload-zone { padding: 24px 16px; }
+      .upload-icon { font-size: 36px; }
+      
+      /* Playback controls for mobile */
+      .playback-controls { gap: 6px; padding: 8px; flex-wrap: wrap; }
+      .playback-handle { width: 20px; height: 20px; }
+      .playback-timeline { height: 12px; }
+      
+      /* Video panel adjustments */
+      #video-panel { min-height: 200px; }
+      
+      /* Better spacing for checkboxes */
+      .session-select-row input[type="checkbox"] { width: 24px; height: 24px; }
+      
+      /* Tab navigation */
+      .tabs { flex-wrap: wrap; gap: 4px; }
+      .tab { padding: 8px 12px; font-size: 12px; }
+    }
+    
+    /* Fullscreen mobile adjustments */
+    @media (max-width: 768px) {
+      #video-wrapper:fullscreen .fs-widget {
+        font-size: 14px !important;
+      }
+      
+      #video-wrapper:fullscreen #video-telemetry-overlay .fs-widget-content,
+      #video-wrapper:fullscreen #video-leg-overlay .fs-widget-content {
+        font-size: 20px !important;
+      }
+      
+      #video-wrapper:fullscreen #video-distance-overlay .fs-widget-content {
+        font-size: 22px !important;
+      }
+      
+      #video-wrapper:fullscreen #video-minimap-overlay {
+        width: 200px;
+        height: 150px;
+      }
+      
+      #video-wrapper:fullscreen #minimap-leg2-telemetry {
+        font-size: 11px !important;
+        width: 70px !important;
+      }
+      
+      #video-wrapper:fullscreen #video-replay-controls {
+        padding: 8px !important;
+      }
+      
+      #video-wrapper:fullscreen .speed-btn {
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+      
+      #video-wrapper:fullscreen .fs-overlay-btn {
+        min-height: 36px;
+        min-width: 36px;
+        font-size: 14px !important;
+      }
+    }
+    
+    /* Prevent text selection during drag on touch devices */
+    .fs-widget-header {
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: none;
+    }
+    
+    /* Improve touch scrolling in panels */
+    .analysis-panel, .tabs-content {
+      -webkit-overflow-scrolling: touch;
+    }
   </style>
 </head>
 <body>
@@ -559,7 +706,7 @@
       <div class="card" id="map-and-content-card">
         <div class="flex">
           <!-- Map container (always visible, on left) -->
-          <div style="position: relative;" id="map-container">
+          <div id="map-container">
             <svg id="map" width="500" height="500"></svg>
             <!-- Legend overlay (fixed position, not affected by zoom) -->
             <div id="map-legend" style="position: absolute; top: 8px; left: 8px; font-size: 11px; pointer-events: none; background: rgba(255,255,255,0.9); padding: 8px 12px; border-radius: 6px;"></div>
@@ -572,6 +719,15 @@
                 <input type="checkbox" id="proj-toggle" onchange="toggleProjection()" style="opacity: 0; width: 0; height: 0;">
                 <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 14px; transition: .2s;"></span>
                 <span id="proj-slider" style="position: absolute; height: 10px; width: 10px; left: 2px; bottom: 2px; background-color: white; border-radius: 50%; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></span>
+              </label>
+            </div>
+            <!-- Hide gray toggle -->
+            <div style="position: absolute; bottom: 65px; left: 10px; font-size: 8px; display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.85); padding: 3px 6px; border-radius: 4px;">
+              <span id="hide-gray-label" style="color: #666;" title="Hide past and future track portions">Hide gray</span>
+              <label style="position: relative; display: inline-block; width: 28px; height: 14px; cursor: pointer;">
+                <input type="checkbox" id="hide-gray-tracks-map" onchange="toggleHideGrayTracksMap()" style="opacity: 0; width: 0; height: 0;">
+                <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 14px; transition: .2s;"></span>
+                <span id="hide-gray-slider" style="position: absolute; height: 10px; width: 10px; left: 2px; bottom: 2px; background-color: white; border-radius: 50%; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></span>
               </label>
             </div>
             <!-- Zoom indicator -->
@@ -5432,10 +5588,9 @@
             <button class="speed-btn" data-speed="8" onclick="setPlaybackSpeed(8)">8×</button>
             <button class="speed-btn" data-speed="16" onclick="setPlaybackSpeed(16)">16×</button>
           </div>
-          <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6b7280;cursor:pointer;white-space:nowrap;" title="Hide past and future track portions">
-            <input type="checkbox" id="hide-gray-tracks" onchange="toggleHideGrayTracks()" style="margin:0;">
-            <span>Hide gray</span>
-          </label>
+          <button class="fs-overlay-btn" onclick="decreaseWidgetScale()" style="font-size:11px;padding:2px 6px;background:#374151;color:#9ca3af;border:1px solid #4b5563;border-radius:3px;cursor:pointer;display:none;" title="Decrease overlay size">−</button>
+          <button class="fs-overlay-btn" onclick="resetWidgetOverlays()" style="font-size:9px;padding:2px 6px;background:#374151;color:#9ca3af;border:1px solid #4b5563;border-radius:3px;cursor:pointer;white-space:nowrap;display:none;" title="Reset overlay widgets to default position and size">Reset overlays</button>
+          <button class="fs-overlay-btn" onclick="increaseWidgetScale()" style="font-size:11px;padding:2px 6px;background:#374151;color:#9ca3af;border:1px solid #4b5563;border-radius:3px;cursor:pointer;display:none;" title="Increase overlay size">+</button>
           <div class="status-dot" style="width:10px;height:10px;border-radius:50%;background:#22c55e;flex-shrink:0;display:none;"></div>
           <div class="timeline-wrapper">
             <div class="video-coverage-bar" id="video-coverage-bar"></div>
@@ -5452,22 +5607,63 @@
       initPlaybackListeners();
       updatePlaybackUI();
       
-      // Sync hide gray tracks checkbox state
-      const hideGrayCheckbox = document.getElementById('hide-gray-tracks');
-      if (hideGrayCheckbox) {
-        hideGrayCheckbox.checked = hideGrayTracks;
-      }
-      
       // Render video timeline markers if videos are loaded
       renderVideoTimelineMarkers();
       updateActiveVideoDisplay();
     }
     
-    function toggleHideGrayTracks() {
-      const checkbox = document.getElementById('hide-gray-tracks');
-      hideGrayTracks = checkbox ? checkbox.checked : false;
+    function toggleHideGrayTracksMap() {
+      const toggle = document.getElementById('hide-gray-tracks-map');
+      const slider = document.getElementById('hide-gray-slider');
+      const track = toggle.nextElementSibling;
+      
+      hideGrayTracks = toggle ? toggle.checked : false;
+      
+      if (slider && track) {
+        if (hideGrayTracks) {
+          slider.style.transform = 'translateX(14px)';
+          track.style.backgroundColor = '#7c3aed';
+        } else {
+          slider.style.transform = 'translateX(0)';
+          track.style.backgroundColor = '#ccc';
+        }
+      }
+      
       renderMap();  // Re-render map with new setting
       renderVideoMinimap();  // Re-render minimap too
+    }
+    
+    function resetWidgetOverlays() {
+      // Reset all widget states to default
+      Object.keys(widgetState).forEach(widgetId => {
+        widgetState[widgetId] = { minimized: false, x: null, y: null, dragged: false, width: null, height: null, resized: false };
+        
+        const widget = document.getElementById(widgetId);
+        if (!widget) return;
+        
+        // Remove dragged class and inline styles
+        widget.classList.remove('dragged', 'minimized');
+        widget.style.top = '';
+        widget.style.left = '';
+        widget.style.bottom = '';
+        widget.style.right = '';
+        widget.style.transform = '';
+        widget.style.width = '';
+        widget.style.height = '';
+        
+        // Update minimize button (▼ = expanded)
+        const btn = widget.querySelector('.fs-minimize-btn');
+        if (btn) {
+          btn.textContent = '▼';
+        }
+      });
+      
+      // Reset widget scale to default
+      widgetScale = 1.0;
+      applyWidgetScale();
+      
+      // Re-render minimap
+      renderVideoMinimap();
     }
 
     function togglePlayback() {
@@ -5705,11 +5901,14 @@
       const newHandle = newTimeline.querySelector('#playback-handle');
       
       newHandle.addEventListener('mousedown', handleTimelineDragStart);
+      newHandle.addEventListener('touchstart', handleTimelineTouchStart, { passive: false });
       newTimeline.addEventListener('click', handleTimelineClick);
+      newTimeline.addEventListener('touchend', handleTimelineTouchEnd, { passive: false });
       
       // Add click listener to coverage bar
       if (coverageBar) {
         coverageBar.addEventListener('click', handleTimelineClick);
+        coverageBar.addEventListener('touchend', handleTimelineTouchEnd, { passive: false });
       }
     }
     
@@ -5717,6 +5916,34 @@
       e.preventDefault();
       e.stopPropagation();
       isDraggingPlayback = true;
+    }
+    
+    function handleTimelineTouchStart(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      isDraggingPlayback = true;
+    }
+    
+    function handleTimelineTouchEnd(e) {
+      if (e.target.id === 'playback-handle') {
+        isDraggingPlayback = false;
+        return;
+      }
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const timeline = e.currentTarget;
+      const rect = timeline.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+      const startTime = getPlaybackStartTime();
+      const duration = getPlaybackDuration();
+      playbackTime = startTime + pct * (duration - startTime);
+      updatePlaybackUI();
+      updateBoatInfoPanel();
+      updateCurrentLegsPanel();
+      updateChartTimePointers();
+      updateTimelinePlaybackPointer();
+      renderMap();
+      syncVideosToPlayback(true);
     }
     
     function handleTimelineClick(e) {
@@ -5762,6 +5989,38 @@
     });
     
     document.addEventListener('mouseup', () => {
+      isDraggingPlayback = false;
+    });
+    
+    // Touch event handlers for mobile timeline scrubbing
+    document.addEventListener('touchmove', (e) => {
+      if (!isDraggingPlayback) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+      
+      // Find visible timeline (main or fullscreen)
+      let timeline = document.getElementById('playback-timeline');
+      const replayControls = document.getElementById('video-replay-controls');
+      if (replayControls && replayControls.style.display !== 'none') {
+        const fsTimeline = replayControls.querySelector('.playback-timeline');
+        if (fsTimeline) timeline = fsTimeline;
+      }
+      if (!timeline) return;
+      const rect = timeline.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+      const startTime = getPlaybackStartTime();
+      const duration = getPlaybackDuration();
+      playbackTime = startTime + pct * (duration - startTime);
+      updatePlaybackUI();
+      updateBoatInfoPanel();
+      updateCurrentLegsPanel();
+      updateChartTimePointers();
+      updateTimelinePlaybackPointer();
+      renderMap();
+      syncVideosToPlayback(true);
+    }, { passive: true });
+    
+    document.addEventListener('touchend', () => {
       isDraggingPlayback = false;
     });
 
@@ -6524,6 +6783,8 @@
         video.src = URL.createObjectURL(file);
         video.muted = playbackSpeed > 2;
         video.playsInline = true;
+        video.setAttribute('playsinline', '');  // iOS Safari
+        video.setAttribute('webkit-playsinline', '');  // Older iOS Safari
         video.preload = 'auto';  // Full preload for smooth playback
         video.disableRemotePlayback = true;  // Disable cast button overhead
         video.disablePictureInPicture = true;  // Disable PiP overhead
@@ -6765,12 +7026,16 @@
     function updateActiveVideoDisplay() {
       const container = document.getElementById('video-container');
       const targetVideo = getCurrentOrNextVideo();
-      const isFullscreen = document.fullscreenElement !== null;
+      const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
       
       // No videos loaded
       if (!targetVideo) {
         if (isFullscreen) {
-          document.exitFullscreen();
+          if (document.exitFullscreen) {
+            document.exitFullscreen();
+          } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+          }
         }
         container.innerHTML = '<div id="video-placeholder" style="color:#9ca3af;text-align:center;padding:20px;width:100%;font-size:12px;">No videos loaded. Add MP4 files with timestamp in filename (e.g., VID_20251130_142618_00_015.mp4)</div>';
         currentActiveVideo = null;
@@ -6875,8 +7140,8 @@
               ${targetVideo.filename.replace(/\.[^.]+$/, '')}
               <span id="video-buffer-indicator" style="font-size:9px;${targetVideo.buffered ? 'color:#22c55e;' : 'color:#f59e0b;'}">${targetVideo.buffered ? '✓' : `${targetVideo.bufferProgress || 0}%`}</span>
             </div>
-            <div id="video-telemetry-overlay" class="fs-widget" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.7);color:white;padding:6px 10px;border-radius:4px;font-size:12px;font-family:monospace;text-align:right;line-height:1.5;display:${isActive ? 'block' : 'none'};">
-              <div class="fs-widget-header">Telemetry <span class="fs-minimize-btn" onclick="toggleWidgetMinimize('video-telemetry-overlay')">−</span></div>
+            <div id="video-telemetry-overlay" class="fs-widget${isFullscreen && widgetState['video-telemetry-overlay']?.dragged ? ' dragged' : ''}${isFullscreen && widgetState['video-telemetry-overlay']?.minimized ? ' minimized' : ''}" style="position:absolute;background:rgba(0,0,0,0.7);color:white;padding:6px 10px;border-radius:4px;font-size:12px;font-family:monospace;text-align:right;line-height:1.5;display:${isActive ? 'block' : 'none'};${isFullscreen && widgetState['video-telemetry-overlay']?.dragged ? `top:${widgetState['video-telemetry-overlay'].y}px;left:${widgetState['video-telemetry-overlay'].x}px;` : ''}">
+              <div class="fs-widget-header">Telemetry <span class="fs-minimize-btn">${isFullscreen && widgetState['video-telemetry-overlay']?.minimized ? '▲' : '▼'}</span></div>
               <div class="fs-widget-content">
                 <div><span style="color:#9ca3af;">SPD</span> <span id="telem-sog">-.-</span></div>
                 <div><span style="color:#9ca3af;">VMG</span> <span id="telem-vmg">-.-</span></div>
@@ -6885,31 +7150,31 @@
                 <div><span style="color:#9ca3af;">STR</span> <span id="telem-str">-.-</span></div>
               </div>
             </div>
-            <div id="video-leg-overlay" class="fs-widget" style="position:absolute;bottom:15%;right:8px;background:rgba(0,0,0,0.7);color:white;padding:6px 10px;border-radius:4px;font-size:12px;font-family:monospace;text-align:right;line-height:1.5;display:${isActive ? 'block' : 'none'};">
-              <div class="fs-widget-header">Leg <span class="fs-minimize-btn" onclick="toggleWidgetMinimize('video-leg-overlay')">−</span></div>
+            <div id="video-leg-overlay" class="fs-widget${isFullscreen && widgetState['video-leg-overlay']?.dragged ? ' dragged' : ''}${isFullscreen && widgetState['video-leg-overlay']?.minimized ? ' minimized' : ''}" style="position:absolute;background:rgba(0,0,0,0.7);color:white;padding:6px 10px;border-radius:4px;font-size:12px;font-family:monospace;text-align:right;line-height:1.5;display:${isActive ? 'block' : 'none'};${isFullscreen && widgetState['video-leg-overlay']?.dragged ? `top:${widgetState['video-leg-overlay'].y}px;left:${widgetState['video-leg-overlay'].x}px;` : ''}">
+              <div class="fs-widget-header"><span id="telem-leg-label">Leg</span> <span class="fs-minimize-btn">${isFullscreen && widgetState['video-leg-overlay']?.minimized ? '▲' : '▼'}</span></div>
               <div class="fs-widget-content">
-                <div id="telem-leg-label" style="color:#9ca3af;font-size:10px;margin-bottom:2px;">Leg</div>
                 <div><span style="color:#9ca3af;">SPD</span> <span id="telem-leg-spd">-.-</span></div>
                 <div><span style="color:#9ca3af;">VMG</span> <span id="telem-leg-vmg">-.-</span></div>
                 <div><span style="color:#9ca3af;">HDG</span> <span id="telem-leg-hdg">---</span></div>
                 <div><span style="color:#9ca3af;">Next</span> <span id="telem-leg-next">--</span></div>
               </div>
             </div>
-            <div id="video-distance-overlay" class="fs-widget" style="position:absolute;bottom:15%;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:white;padding:6px 12px;border-radius:4px;font-size:14px;font-family:monospace;text-align:center;display:${isActive ? 'block' : 'none'};">
-              <div class="fs-widget-header" style="text-align:left;">Distance <span class="fs-minimize-btn" onclick="toggleWidgetMinimize('video-distance-overlay')">−</span></div>
+            <div id="video-distance-overlay" class="fs-widget${isFullscreen && widgetState['video-distance-overlay']?.dragged ? ' dragged' : ''}${isFullscreen && widgetState['video-distance-overlay']?.minimized ? ' minimized' : ''}" style="position:absolute;background:rgba(0,0,0,0.7);color:white;padding:6px 12px;border-radius:4px;font-size:14px;font-family:monospace;text-align:center;display:${isActive ? 'block' : 'none'};${isFullscreen && widgetState['video-distance-overlay']?.dragged ? `top:${widgetState['video-distance-overlay'].y}px;left:${widgetState['video-distance-overlay'].x}px;` : ''}">
+              <div class="fs-widget-header" style="text-align:left;">Distance <span class="fs-minimize-btn">${isFullscreen && widgetState['video-distance-overlay']?.minimized ? '▲' : '▼'}</span></div>
               <div class="fs-widget-content">
                 <span id="telem-distance">--</span>
               </div>
             </div>
-            <div id="video-minimap-overlay" class="fs-widget">
-              <div class="fs-widget-header">Map <span class="fs-minimize-btn" onclick="toggleWidgetMinimize('video-minimap-overlay')">−</span></div>
-              <div class="fs-widget-content" style="position:relative;height:calc(100% - 20px);">
-                <svg id="video-minimap-svg" style="display:block;"></svg>
-                <div id="minimap-leg2-telemetry" style="position:absolute;top:4px;right:4px;bottom:4px;width:70px;color:white;font-size:9px;font-family:monospace;line-height:1.4;text-shadow:0 1px 2px rgba(0,0,0,0.8);display:flex;flex-direction:column;justify-content:center;">
+            <div id="video-minimap-overlay" class="fs-widget${isFullscreen && widgetState['video-minimap-overlay']?.dragged ? ' dragged' : ''}${isFullscreen && widgetState['video-minimap-overlay']?.minimized ? ' minimized' : ''}" style="${isFullscreen && widgetState['video-minimap-overlay']?.dragged ? `top:${widgetState['video-minimap-overlay'].y}px;left:${widgetState['video-minimap-overlay'].x}px;` : ''}">
+              <div class="fs-widget-header">Map <span class="fs-minimize-btn">${isFullscreen && widgetState['video-minimap-overlay']?.minimized ? '▲' : '▼'}</span></div>
+              <div class="fs-widget-content" style="display:flex;gap:4px;height:calc(100% - 24px);">
+                <svg id="video-minimap-svg" style="display:block;flex:1;"></svg>
+                <div id="minimap-leg2-telemetry" style="flex-shrink:0;width:90px;color:white;font-size:9px;font-family:monospace;line-height:1.4;display:flex;flex-direction:column;justify-content:center;">
                   <div id="telem-leg2-label" style="font-size:8px;margin-bottom:2px;">Boat 2 Leg</div>
                   <div><span style="color:#9ca3af;">SPD</span> <span id="telem-leg2-spd">-.-</span></div>
                   <div><span style="color:#9ca3af;">VMG</span> <span id="telem-leg2-vmg">-.-</span></div>
                   <div><span style="color:#9ca3af;">HDG</span> <span id="telem-leg2-hdg">---</span></div>
+                  <div><span style="color:#9ca3af;">HEEL</span> <span id="telem-leg2-heel">--</span></div>
                   <div><span style="color:#9ca3af;">Next</span> <span id="telem-leg2-next">--</span></div>
                 </div>
               </div>
@@ -6963,10 +7228,12 @@
       
       updateVideoOverlays();
       
-      // Init widget dragging if in fullscreen
-      if (document.fullscreenElement) {
+      // Init widget dragging and resizing if in fullscreen
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
         initWidgetDragging();
+        initWidgetResizing();
         restoreWidgetPositions();
+        restoreWidgetSizes();
       }
     }
     
@@ -6985,7 +7252,7 @@
       const legOverlay = document.getElementById('video-leg-overlay');
       const distanceOverlay = document.getElementById('video-distance-overlay');
       const countdownEl = document.getElementById('video-countdown');
-      const isFullscreen = document.fullscreenElement !== null;
+      const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
       
       if (!timeText || !statusBadge) return;
       
@@ -7331,6 +7598,7 @@
       const leg2SpdEl = document.getElementById('telem-leg2-spd');
       const leg2VmgEl = document.getElementById('telem-leg2-vmg');
       const leg2HdgEl = document.getElementById('telem-leg2-hdg');
+      const leg2HeelEl = document.getElementById('telem-leg2-heel');
       const leg2NextEl = document.getElementById('telem-leg2-next');
       const leg2LabelEl = document.getElementById('telem-leg2-label');
       const distEl = document.getElementById('telem-distance');
@@ -7350,6 +7618,7 @@
         if (leg2SpdEl) leg2SpdEl.textContent = '-.-';
         if (leg2VmgEl) leg2VmgEl.textContent = '-.-';
         if (leg2HdgEl) leg2HdgEl.textContent = '---';
+        if (leg2HeelEl) leg2HeelEl.textContent = '--';
         if (leg2NextEl) leg2NextEl.textContent = '--';
         if (distEl) distEl.textContent = '--';
         return;
@@ -7426,10 +7695,12 @@
       if (sessions.length >= 2) {
         const session2 = sessions[1];
         const currentLeg2 = getCurrentLegAtTime(session2, playbackTime);
+        
         if (currentLeg2) {
           if (leg2SpdEl) leg2SpdEl.textContent = currentLeg2.speed != null ? parseFloat(currentLeg2.speed).toFixed(1) : '-.-';
           if (leg2VmgEl) leg2VmgEl.textContent = currentLeg2.vmg != null ? parseFloat(currentLeg2.vmg).toFixed(1) : '-.-';
           if (leg2HdgEl) leg2HdgEl.textContent = currentLeg2.hdg != null ? Math.round(currentLeg2.hdg).toString().padStart(3, '0') : '---';
+          if (leg2HeelEl) leg2HeelEl.textContent = currentLeg2.heel != null ? Math.round(currentLeg2.heel) : '--';
           
           // Calculate time until next leg and tack angle for boat 2
           const sessionLocalTime2 = getSessionLocalTime(session2, playbackTime);
@@ -7449,12 +7720,14 @@
           if (leg2SpdEl) leg2SpdEl.textContent = '-.-';
           if (leg2VmgEl) leg2VmgEl.textContent = '-.-';
           if (leg2HdgEl) leg2HdgEl.textContent = '---';
+          if (leg2HeelEl) leg2HeelEl.textContent = '--';
           if (leg2NextEl) leg2NextEl.textContent = '--';
         }
       } else {
         if (leg2SpdEl) leg2SpdEl.textContent = '-.-';
         if (leg2VmgEl) leg2VmgEl.textContent = '-.-';
         if (leg2HdgEl) leg2HdgEl.textContent = '---';
+        if (leg2HeelEl) leg2HeelEl.textContent = '--';
         if (leg2NextEl) leg2NextEl.textContent = '--';
       }
       
@@ -7598,6 +7871,63 @@
       'video-minimap-overlay': { minimized: false, x: null, y: null, dragged: false }
     };
     
+    // Widget scale (1.0 = default, range 0.5 to 2.0)
+    let widgetScale = 1.0;
+    const WIDGET_SCALE_MIN = 0.5;
+    const WIDGET_SCALE_MAX = 2.0;
+    const WIDGET_SCALE_STEP = 0.1;
+    
+    function increaseWidgetScale() {
+      widgetScale = Math.min(WIDGET_SCALE_MAX, widgetScale + WIDGET_SCALE_STEP);
+      applyWidgetScale();
+    }
+    
+    function decreaseWidgetScale() {
+      widgetScale = Math.max(WIDGET_SCALE_MIN, widgetScale - WIDGET_SCALE_STEP);
+      applyWidgetScale();
+    }
+    
+    function applyWidgetScale() {
+      const widgets = document.querySelectorAll('.fs-widget');
+      widgets.forEach(widget => {
+        const widgetId = widget.id;
+        const state = widgetState[widgetId];
+        
+        // Set transform origin based on widget position
+        // Telemetry is at top-right, others are at bottom
+        if (widgetId === 'video-telemetry-overlay') {
+          widget.style.transformOrigin = 'top right';
+        } else if (widgetId === 'video-leg-overlay') {
+          widget.style.transformOrigin = 'bottom right';
+        } else if (widgetId === 'video-minimap-overlay') {
+          widget.style.transformOrigin = 'bottom left';
+        } else if (widgetId === 'video-distance-overlay') {
+          widget.style.transformOrigin = 'bottom center';
+        }
+        
+        // Apply scale (or clear if default)
+        if (widgetScale === 1.0) {
+          // For dragged widgets, keep transform: none; for others, clear
+          if (state && state.dragged) {
+            widget.style.transform = 'none';
+          } else if (widgetId === 'video-distance-overlay' && !widget.classList.contains('dragged')) {
+            widget.style.transform = 'translateX(-50%)';
+          } else {
+            widget.style.transform = '';
+          }
+        } else {
+          // Apply scale
+          if (widgetId === 'video-distance-overlay' && !state?.dragged) {
+            widget.style.transform = `translateX(-50%) scale(${widgetScale})`;
+          } else {
+            widget.style.transform = `scale(${widgetScale})`;
+          }
+        }
+      });
+      
+      // CSS transform handles visual scaling - no need to re-render minimap
+    }
+    
     let draggedWidget = null;
     let dragOffsetX = 0;
     let dragOffsetY = 0;
@@ -7609,10 +7939,10 @@
       widgetState[widgetId].minimized = !widgetState[widgetId].minimized;
       widget.classList.toggle('minimized', widgetState[widgetId].minimized);
       
-      // Update button text
+      // Update button symbol (▲ when minimized = click to show, ▼ when expanded = click to hide)
       const btn = widget.querySelector('.fs-minimize-btn');
       if (btn) {
-        btn.textContent = widgetState[widgetId].minimized ? '+' : '−';
+        btn.textContent = widgetState[widgetId].minimized ? '▲' : '▼';
       }
     }
     
@@ -7622,9 +7952,20 @@
         const header = widget.querySelector('.fs-widget-header');
         if (!header) return;
         
-        header.addEventListener('mousedown', (e) => {
-          if (e.target.classList.contains('fs-minimize-btn')) return;
-          if (!document.fullscreenElement) return;
+        // Remove existing listeners to avoid duplicates
+        const newHeader = header.cloneNode(true);
+        header.parentNode.replaceChild(newHeader, header);
+        
+        let dragStartTime = 0;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        
+        newHeader.addEventListener('mousedown', (e) => {
+          if (!(document.fullscreenElement || document.webkitFullscreenElement)) return;
+          
+          dragStartTime = Date.now();
+          dragStartX = e.clientX;
+          dragStartY = e.clientY;
           
           e.preventDefault();
           draggedWidget = widget;
@@ -7635,37 +7976,118 @@
           
           widget.style.transition = 'none';
         });
+        
+        // Touch events for mobile widget dragging
+        newHeader.addEventListener('touchstart', (e) => {
+          if (!(document.fullscreenElement || document.webkitFullscreenElement)) return;
+          
+          const touch = e.touches[0];
+          if (!touch) return;
+          
+          dragStartTime = Date.now();
+          dragStartX = touch.clientX;
+          dragStartY = touch.clientY;
+          
+          e.preventDefault();
+          draggedWidget = widget;
+          
+          const rect = widget.getBoundingClientRect();
+          dragOffsetX = touch.clientX - rect.left;
+          dragOffsetY = touch.clientY - rect.top;
+          
+          widget.style.transition = 'none';
+        }, { passive: false });
+        
+        newHeader.addEventListener('touchend', (e) => {
+          // Only toggle if it was a tap (not a drag)
+          const touch = e.changedTouches[0];
+          if (!touch) return;
+          
+          const dragDuration = Date.now() - dragStartTime;
+          const dragDistance = Math.sqrt(Math.pow(touch.clientX - dragStartX, 2) + Math.pow(touch.clientY - dragStartY, 2));
+          
+          if (dragDuration < 200 && dragDistance < 10) {
+            toggleWidgetMinimize(widget.id);
+          }
+          
+          if (draggedWidget) {
+            draggedWidget.style.transition = '';
+            draggedWidget = null;
+          }
+        });
+        
+        newHeader.addEventListener('click', (e) => {
+          // Only toggle if it was a click (not a drag)
+          const dragDuration = Date.now() - dragStartTime;
+          const dragDistance = Math.sqrt(Math.pow(e.clientX - dragStartX, 2) + Math.pow(e.clientY - dragStartY, 2));
+          
+          if (dragDuration < 200 && dragDistance < 5) {
+            toggleWidgetMinimize(widget.id);
+          }
+        });
       });
       
-      document.addEventListener('mousemove', (e) => {
-        if (!draggedWidget) return;
+      // Only add document-level listeners once
+      if (!window._widgetDragListenersAdded) {
+        window._widgetDragListenersAdded = true;
         
-        const x = e.clientX - dragOffsetX;
-        const y = e.clientY - dragOffsetY;
+        document.addEventListener('mousemove', (e) => {
+          if (!draggedWidget) return;
+          
+          const x = e.clientX - dragOffsetX;
+          const y = e.clientY - dragOffsetY;
+          
+          // Add dragged class to override CSS default positions
+          draggedWidget.classList.add('dragged');
+          
+          // Set new position
+          draggedWidget.style.top = y + 'px';
+          draggedWidget.style.left = x + 'px';
+          draggedWidget.style.bottom = 'auto';
+          draggedWidget.style.right = 'auto';
+          draggedWidget.style.transform = 'none';
+          
+          // Save position and dragged state
+          widgetState[draggedWidget.id] = widgetState[draggedWidget.id] || {};
+          widgetState[draggedWidget.id].x = x;
+          widgetState[draggedWidget.id].y = y;
+          widgetState[draggedWidget.id].dragged = true;
+        });
         
-        // Add dragged class to override CSS default positions
-        draggedWidget.classList.add('dragged');
+        document.addEventListener('mouseup', () => {
+          if (draggedWidget) {
+            draggedWidget.style.transition = '';
+            draggedWidget = null;
+          }
+        });
         
-        // Set new position
-        draggedWidget.style.top = y + 'px';
-        draggedWidget.style.left = x + 'px';
-        draggedWidget.style.bottom = 'auto';
-        draggedWidget.style.right = 'auto';
-        draggedWidget.style.transform = 'none';
-        
-        // Save position and dragged state
-        widgetState[draggedWidget.id] = widgetState[draggedWidget.id] || {};
-        widgetState[draggedWidget.id].x = x;
-        widgetState[draggedWidget.id].y = y;
-        widgetState[draggedWidget.id].dragged = true;
-      });
-      
-      document.addEventListener('mouseup', () => {
-        if (draggedWidget) {
-          draggedWidget.style.transition = '';
-          draggedWidget = null;
-        }
-      });
+        // Touch event handlers for mobile widget dragging
+        document.addEventListener('touchmove', (e) => {
+          if (!draggedWidget) return;
+          
+          const touch = e.touches[0];
+          if (!touch) return;
+          
+          const x = touch.clientX - dragOffsetX;
+          const y = touch.clientY - dragOffsetY;
+          
+          // Add dragged class to override CSS default positions
+          draggedWidget.classList.add('dragged');
+          
+          // Set new position
+          draggedWidget.style.top = y + 'px';
+          draggedWidget.style.left = x + 'px';
+          draggedWidget.style.bottom = 'auto';
+          draggedWidget.style.right = 'auto';
+          draggedWidget.style.transform = 'none';
+          
+          // Save position and dragged state
+          widgetState[draggedWidget.id] = widgetState[draggedWidget.id] || {};
+          widgetState[draggedWidget.id].x = x;
+          widgetState[draggedWidget.id].y = y;
+          widgetState[draggedWidget.id].dragged = true;
+        }, { passive: true });
+      }
     }
     
     function restoreWidgetPositions() {
@@ -7684,9 +8106,63 @@
         }
         
         widget.classList.toggle('minimized', state.minimized);
+        
+        // Update button symbol (▲ when minimized, ▼ when expanded)
         const btn = widget.querySelector('.fs-minimize-btn');
         if (btn) {
-          btn.textContent = state.minimized ? '+' : '−';
+          btn.textContent = state.minimized ? '▲' : '▼';
+        }
+      });
+    }
+    
+    // Widget base sizes for scaling calculations
+    const widgetBaseSizes = {
+      'video-telemetry-overlay': { width: 180, height: 200, fontSize: 28 },
+      'video-leg-overlay': { width: 180, height: 220, fontSize: 28 },
+      'video-distance-overlay': { width: 200, height: 80, fontSize: 28 },
+      'video-minimap-overlay': { width: 270, height: 200, fontSize: 14 }
+    };
+    
+    let widgetResizeObserver = null;
+    
+    function initWidgetResizing() {
+      // Widget resizing is now handled via +/- buttons (scale transform)
+      // No longer using CSS resize:both
+      if (widgetResizeObserver) {
+        widgetResizeObserver.disconnect();
+        widgetResizeObserver = null;
+      }
+    }
+    
+    function restoreWidgetSizes() {
+      // CSS handles default sizes and fonts
+      // This function is now a no-op since we removed ResizeObserver font scaling
+    }
+    
+    function clearWidgetInlineStyles() {
+      // Clear inline styles that were set during fullscreen
+      // In non-fullscreen mode, widgets should use default CSS positions
+      Object.keys(widgetState).forEach(widgetId => {
+        const widget = document.getElementById(widgetId);
+        if (!widget) return;
+        
+        // Clear all inline position/size/transform styles
+        widget.style.top = '';
+        widget.style.left = '';
+        widget.style.bottom = '';
+        widget.style.right = '';
+        widget.style.transform = '';
+        widget.style.transformOrigin = '';
+        widget.style.width = '';
+        widget.style.height = '';
+        
+        // Remove classes - non-fullscreen uses CSS default positions
+        widget.classList.remove('dragged', 'minimized');
+        
+        // Reset button symbol (▼ = expanded)
+        const btn = widget.querySelector('.fs-minimize-btn');
+        if (btn) {
+          btn.textContent = '▼';
         }
       });
     }
@@ -7698,8 +8174,12 @@
       const wrapper = document.getElementById('video-wrapper');
       if (!wrapper) return;
       
-      if (document.fullscreenElement) {
-        document.exitFullscreen();
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        }
       } else {
         // Copy race replay controls to fullscreen overlay with status bar
         const replaySection = document.getElementById('race-replay-section');
@@ -7755,12 +8235,6 @@
             fsCoverageBar.addEventListener('click', handleTimelineClick);
           }
           
-          // Sync hide gray checkbox state
-          const fsHideGrayCheckbox = replayControls.querySelector('#hide-gray-tracks');
-          if (fsHideGrayCheckbox) {
-            fsHideGrayCheckbox.checked = hideGrayTracks;
-          }
-          
           // Render video coverage in fullscreen
           if (fsCoverageBar && loadedVideos.length > 0) {
             fsCoverageBar.innerHTML = '';
@@ -7790,30 +8264,56 @@
             }
           }
         }
-        wrapper.requestFullscreen().catch(err => {
-          console.log('Fullscreen error:', err);
-        });
+        // Request fullscreen with webkit fallback for iOS Safari
+        if (wrapper.requestFullscreen) {
+          wrapper.requestFullscreen().catch(err => {
+            console.log('Fullscreen error:', err);
+          });
+        } else if (wrapper.webkitRequestFullscreen) {
+          wrapper.webkitRequestFullscreen();
+        } else if (wrapper.webkitEnterFullscreen) {
+          wrapper.webkitEnterFullscreen();
+        }
+      }
+    }
+    
+    // Helper function to check if in fullscreen (with webkit prefix support)
+    function isInFullscreen() {
+      return !!(document.fullscreenElement || document.webkitFullscreenElement);
+    }
+    
+    // Fullscreen change handler
+    function handleFullscreenChange() {
+      const btn = document.getElementById('video-fullscreen-btn');
+      const replayControls = document.getElementById('video-replay-controls');
+      const inFullscreen = isInFullscreen();
+      
+      if (btn) {
+        btn.textContent = inFullscreen ? '✕' : '⛶';
+      }
+      if (replayControls && !inFullscreen) {
+        replayControls.style.display = 'none';
+      }
+      if (inFullscreen) {
+        // Init widget dragging, resizing and restore positions in fullscreen
+        initWidgetDragging();
+        initWidgetResizing();
+        restoreWidgetPositions();
+        restoreWidgetSizes();
+        applyWidgetScale();
+      } else {
+        // Disconnect resize observer when exiting fullscreen
+        if (widgetResizeObserver) {
+          widgetResizeObserver.disconnect();
+        }
+        // Clear inline styles when exiting fullscreen so CSS works correctly next time
+        clearWidgetInlineStyles();
       }
     }
     
     // Update fullscreen button icon based on state
-    document.addEventListener('fullscreenchange', () => {
-      const btn = document.getElementById('video-fullscreen-btn');
-      const replayControls = document.getElementById('video-replay-controls');
-      if (btn) {
-        btn.textContent = document.fullscreenElement ? '✕' : '⛶';
-      }
-      if (replayControls && !document.fullscreenElement) {
-        replayControls.style.display = 'none';
-      }
-      if (document.fullscreenElement) {
-        // Init widget dragging and restore positions in fullscreen
-        setTimeout(() => {
-          initWidgetDragging();
-          restoreWidgetPositions();
-        }, 100);
-      }
-    });
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     
     // Update fullscreen status elements
     function updateFullscreenStatus() {
