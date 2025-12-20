@@ -7508,7 +7508,7 @@
             <div style="color:#9ca3af;font-size:14px;text-align:center;max-width:80%;">
               <div>No video available for this timeslot</div>
               <div id="video-countdown" style="margin-top:8px;color:#3b82f6;font-size:13px;"></div>
-              <div style="margin-top:12px;padding:8px 16px;background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.5);border-radius:6px;color:#3b82f6;">▶ Skip to next video</div>
+              <div id="video-skip-btn" style="margin-top:12px;padding:8px 16px;background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.5);border-radius:6px;color:#3b82f6;">▶ Skip to next video</div>
             </div>
           </div>
           <div id="video-overlays-container" style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;transform:translateZ(0);z-index:10;">
@@ -7628,6 +7628,7 @@
       const legOverlay = document.getElementById('video-leg-overlay');
       const distanceOverlay = document.getElementById('video-distance-overlay');
       const countdownEl = document.getElementById('video-countdown');
+      const skipBtn = document.getElementById('video-skip-btn');
       const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
       
       // Check if we have 2 boats for distance overlay
@@ -7676,13 +7677,14 @@
         if (legOverlay) legOverlay.style.display = isFullscreen ? 'block' : 'none';
         if (distanceOverlay) distanceOverlay.style.display = (isFullscreen && hasTwoBoats) ? 'block' : 'none';
         currentActiveVideo.element.style.visibility = 'hidden';
-        // Update countdown
+        // Update countdown - video is coming, show skip button
         if (countdownEl) {
           const secsUntilVideo = Math.ceil(-videoTimeSec);
           const mins = Math.floor(secsUntilVideo / 60);
           const secs = secsUntilVideo % 60;
           countdownEl.textContent = `Next video starts in ${mins}:${secs.toString().padStart(2, '0')}`;
         }
+        if (skipBtn) skipBtn.style.display = 'block';
       } else if (videoTimeSec > effectiveDuration) {
         // Video ended - show unavailable, find next video
         timeText.textContent = formatVideoDateTime(currentAbsoluteMs);
@@ -7695,8 +7697,8 @@
         if (distanceOverlay) distanceOverlay.style.display = (isFullscreen && hasTwoBoats) ? 'block' : 'none';
         currentActiveVideo.element.style.visibility = 'hidden';
         // Update countdown for next video
+        const nextVideo = getNextVideoAfterCurrent();
         if (countdownEl) {
-          const nextVideo = getNextVideoAfterCurrent();
           if (nextVideo) {
             const nextVideoStartMin = (nextVideo.startTimestampMs - referenceStartMs) / 60000;
             const secsUntilNext = Math.ceil((nextVideoStartMin - playbackTime) * 60);
@@ -7711,6 +7713,8 @@
             countdownEl.textContent = 'No more videos available';
           }
         }
+        // Show/hide skip button based on whether there's a next video
+        if (skipBtn) skipBtn.style.display = nextVideo ? 'block' : 'none';
       } else {
         // Video active - show live
         timeText.textContent = formatVideoDateTime(actualTimestampMs);
