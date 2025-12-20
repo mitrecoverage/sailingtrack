@@ -833,7 +833,7 @@
                     <span class="btn btn-sm" style="background:#3b82f6;color:white;cursor:pointer;display:inline-block;" title="Select video files">
                       📄 Files
                     </span>
-                    <input type="file" id="video-file-input" accept="video/*" multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0;" onchange="handleVideoFiles(event)">
+                    <input type="file" id="video-file-input" multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0;" onchange="handleVideoFiles(event)">
                   </div>
                   <label class="btn btn-sm" style="background:#8b5cf6;color:white;cursor:pointer;" title="Select folder with videos">
                     📁 Folder
@@ -980,6 +980,13 @@
   </div>
 
   <script>
+    // ===== PLATFORM DETECTION =====
+    // Mobile detection for file input handling (mobile has issues with accept filters)
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const isMobile = isIOS || isAndroid;
+    
     // ===== VKX PARSER =====
     const ROW_DEFINITIONS = {
       0xFF: [7, 'page_header'],
@@ -4305,7 +4312,10 @@
       const newInput = document.createElement('input');
       newInput.type = 'file';
       newInput.id = 'file-input';
-      // No accept attribute - filtering done in JavaScript for mobile compatibility
+      // Add accept filter for desktop only (mobile has issues with accept)
+      if (!isMobile) {
+        newInput.accept = '.vkx,.fit,.gpx,.gz';
+      }
       newInput.multiple = true;
       newInput.style.display = 'none';
       newInput.addEventListener('change', handleFileSelect);
@@ -6658,9 +6668,19 @@
 
     // ===== VIDEO REPLAY FUNCTIONS =====
     
-    // iOS detection for Service Worker video handling
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    // Set file input accept attributes for desktop only (mobile has issues with accept filters)
+    if (!isMobile) {
+      // Add accept filters for desktop browsers
+      const fileInput = document.getElementById('file-input');
+      if (fileInput) {
+        fileInput.accept = '.vkx,.fit,.gpx,.gz';
+      }
+      const videoInput = document.getElementById('video-file-input');
+      if (videoInput) {
+        videoInput.accept = 'video/*,.mp4,.mov,.m4v,.avi,.mkv,.webm';
+      }
+    }
+    
     let swReady = false;
     let videoFileIdCounter = 0;
     
