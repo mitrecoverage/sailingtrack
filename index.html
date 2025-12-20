@@ -7555,6 +7555,9 @@
       const countdownEl = document.getElementById('video-countdown');
       const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
       
+      // Check if we have 2 boats for distance overlay
+      const hasTwoBoats = getReplaySessions().length >= 2;
+      
       if (!timeText || !statusBadge) return;
       
       // Calculate actual timestamp for display
@@ -7571,7 +7574,7 @@
         if (unavailableOverlay) unavailableOverlay.style.display = 'none';
         if (telemetryOverlay) telemetryOverlay.style.display = 'block';
         if (legOverlay) legOverlay.style.display = 'block';
-        if (distanceOverlay) distanceOverlay.style.display = 'block';
+        if (distanceOverlay) distanceOverlay.style.display = hasTwoBoats ? 'block' : 'none';
         updateFullscreenStatus();
         // Update minimap in fullscreen mode
         if (isFullscreen) {
@@ -7591,7 +7594,7 @@
         // In fullscreen, keep telemetry visible
         if (telemetryOverlay) telemetryOverlay.style.display = isFullscreen ? 'block' : 'none';
         if (legOverlay) legOverlay.style.display = isFullscreen ? 'block' : 'none';
-        if (distanceOverlay) distanceOverlay.style.display = isFullscreen ? 'block' : 'none';
+        if (distanceOverlay) distanceOverlay.style.display = (isFullscreen && hasTwoBoats) ? 'block' : 'none';
         currentActiveVideo.element.style.visibility = 'hidden';
         // Update countdown
         if (countdownEl) {
@@ -7609,7 +7612,7 @@
         // In fullscreen, keep telemetry visible
         if (telemetryOverlay) telemetryOverlay.style.display = isFullscreen ? 'block' : 'none';
         if (legOverlay) legOverlay.style.display = isFullscreen ? 'block' : 'none';
-        if (distanceOverlay) distanceOverlay.style.display = isFullscreen ? 'block' : 'none';
+        if (distanceOverlay) distanceOverlay.style.display = (isFullscreen && hasTwoBoats) ? 'block' : 'none';
         currentActiveVideo.element.style.visibility = 'hidden';
         // Update countdown for next video
         if (countdownEl) {
@@ -7636,7 +7639,7 @@
         if (unavailableOverlay) unavailableOverlay.style.display = 'none';
         if (telemetryOverlay) telemetryOverlay.style.display = 'block';
         if (legOverlay) legOverlay.style.display = 'block';
-        if (distanceOverlay) distanceOverlay.style.display = 'block';
+        if (distanceOverlay) distanceOverlay.style.display = hasTwoBoats ? 'block' : 'none';
         currentActiveVideo.element.style.visibility = 'visible';
       }
       
