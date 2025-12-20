@@ -209,7 +209,10 @@
     /* Only show boat 2 telemetry in fullscreen when there are 2+ boats (controlled via JS) */
     #video-wrapper:fullscreen #minimap-leg2-telemetry {
       font-size: 14px !important;
-      width: 90px !important;
+      min-width: 70px;
+      max-width: 120px;
+      width: 30%;
+      flex-shrink: 0;
     }
     
     #video-wrapper:fullscreen #minimap-leg2-telemetry.show-boat2 {
@@ -259,11 +262,28 @@
       width: 270px;
       height: 200px;
       min-width: 150px;
-      min-height: 150px;
+      min-height: 120px;
+      max-width: 600px;
+      max-height: 500px;
       background: rgba(0,0,0,0.7) !important;
       border-radius: 8px !important;
       padding: 8px !important;
       box-sizing: border-box !important;
+      resize: both;
+      overflow: hidden;
+    }
+    
+    /* Resize handle indicator */
+    #video-wrapper:fullscreen #video-minimap-overlay::after {
+      content: '';
+      position: absolute;
+      right: 2px;
+      bottom: 2px;
+      width: 12px;
+      height: 12px;
+      background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.3) 50%);
+      border-radius: 0 0 6px 0;
+      pointer-events: none;
     }
     
     #video-wrapper:fullscreen #video-minimap-overlay.single-boat {
@@ -292,6 +312,11 @@
       height: auto !important;
       min-width: auto !important;
       min-height: auto !important;
+      resize: none !important;
+    }
+    
+    #video-wrapper:fullscreen #video-minimap-overlay.minimized::after {
+      display: none;
     }
     
     #video-wrapper:fullscreen #video-minimap-overlay.minimized .fs-widget-content {
@@ -650,7 +675,8 @@
       
       #video-wrapper:fullscreen #minimap-leg2-telemetry {
         font-size: 11px !important;
-        width: 70px !important;
+        min-width: 60px;
+        max-width: 80px;
       }
       
       #video-wrapper:fullscreen #video-replay-controls {
@@ -5747,6 +5773,16 @@
         }
       });
       
+      // Reset leg2 telemetry font size
+      const leg2Panel = document.getElementById('minimap-leg2-telemetry');
+      if (leg2Panel) {
+        leg2Panel.style.fontSize = '';
+      }
+      const leg2Label = document.getElementById('telem-leg2-label');
+      if (leg2Label) {
+        leg2Label.style.fontSize = '';
+      }
+      
       // Reset widget scale to default
       widgetScale = 1.0;
       applyWidgetScale();
@@ -7509,7 +7545,7 @@
               <div class="fs-widget-header">Map <span class="fs-minimize-btn">${isFullscreen && widgetState['video-minimap-overlay']?.minimized ? '▲' : '▼'}</span></div>
               <div class="fs-widget-content" style="display:flex;gap:4px;height:calc(100% - 24px);">
                 <svg id="video-minimap-svg" style="display:block;flex:1;"></svg>
-                <div id="minimap-leg2-telemetry" class="${getReplaySessions().length >= 2 ? 'show-boat2' : ''}" style="flex-shrink:0;width:90px;color:white;font-size:9px;font-family:monospace;line-height:1.4;display:${getReplaySessions().length >= 2 ? 'flex' : 'none'};flex-direction:column;justify-content:center;">
+                <div id="minimap-leg2-telemetry" class="${getReplaySessions().length >= 2 ? 'show-boat2' : ''}" style="flex-shrink:0;color:white;font-size:9px;font-family:monospace;line-height:1.4;display:${getReplaySessions().length >= 2 ? 'flex' : 'none'};flex-direction:column;justify-content:center;">
                   <div id="telem-leg2-label" style="font-size:8px;margin-bottom:2px;">Boat 2 Leg</div>
                   <div><span style="color:#9ca3af;">SPD</span> <span id="telem-leg2-spd">-.-</span></div>
                   <div><span style="color:#9ca3af;">VMG</span> <span id="telem-leg2-vmg">-.-</span></div>
@@ -8536,17 +8572,68 @@
     let widgetResizeObserver = null;
     
     function initWidgetResizing() {
-      // Widget resizing is now handled via +/- buttons (scale transform)
-      // No longer using CSS resize:both
+      // Disconnect existing observer
       if (widgetResizeObserver) {
         widgetResizeObserver.disconnect();
         widgetResizeObserver = null;
       }
+      
+      // Set up ResizeObserver for minimap to re-render SVG when resized
+      const minimap = document.getElementById('video-minimap-overlay');
+      if (minimap) {
+        widgetResizeObserver = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            if (entry.target.id === 'video-minimap-overlay') {
+              // Save the new size to widget state
+              const rect = entry.contentRect;
+              widgetState['video-minimap-overlay'] = widgetState['video-minimap-overlay'] || {};
+              widgetState['video-minimap-overlay'].width = rect.width;
+              widgetState['video-minimap-overlay'].height = rect.height;
+              
+              // Scale leg2 telemetry font based on minimap height
+              const leg2Panel = document.getElementById('minimap-leg2-telemetry');
+              if (leg2Panel) {
+                // Base font size 14px at height 200px, scale proportionally
+                const scaleFactor = Math.max(0.7, Math.min(1.5, rect.height / 200));
+                const fontSize = Math.round(14 * scaleFactor);
+                const labelFontSize = Math.round(11 * scaleFactor);
+                leg2Panel.style.fontSize = fontSize + 'px';
+                const label = document.getElementById('telem-leg2-label');
+                if (label) {
+                  label.style.fontSize = labelFontSize + 'px';
+                }
+              }
+              
+              // Re-render minimap SVG with new dimensions
+              renderVideoMinimap();
+            }
+          }
+        });
+        widgetResizeObserver.observe(minimap);
+      }
     }
     
     function restoreWidgetSizes() {
-      // CSS handles default sizes and fonts
-      // This function is now a no-op since we removed ResizeObserver font scaling
+      // Restore minimap size if it was resized
+      const minimapState = widgetState['video-minimap-overlay'];
+      const minimap = document.getElementById('video-minimap-overlay');
+      if (minimap && minimapState && minimapState.width && minimapState.height) {
+        minimap.style.width = minimapState.width + 'px';
+        minimap.style.height = minimapState.height + 'px';
+        
+        // Also restore leg2 telemetry font size based on height
+        const leg2Panel = document.getElementById('minimap-leg2-telemetry');
+        if (leg2Panel) {
+          const scaleFactor = Math.max(0.7, Math.min(1.5, minimapState.height / 200));
+          const fontSize = Math.round(14 * scaleFactor);
+          const labelFontSize = Math.round(11 * scaleFactor);
+          leg2Panel.style.fontSize = fontSize + 'px';
+          const label = document.getElementById('telem-leg2-label');
+          if (label) {
+            label.style.fontSize = labelFontSize + 'px';
+          }
+        }
+      }
     }
     
     function clearWidgetInlineStyles() {
@@ -8575,6 +8662,16 @@
           btn.textContent = '▼';
         }
       });
+      
+      // Also clear leg2 telemetry font size
+      const leg2Panel = document.getElementById('minimap-leg2-telemetry');
+      if (leg2Panel) {
+        leg2Panel.style.fontSize = '';
+      }
+      const leg2Label = document.getElementById('telem-leg2-label');
+      if (leg2Label) {
+        leg2Label.style.fontSize = '';
+      }
     }
     
     function toggleVideoFullscreen(event) {
