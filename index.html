@@ -6710,21 +6710,31 @@
     }
     
     function handleVideoFiles(event) {
-      console.log('handleVideoFiles called', event.target.id, event.target.files);
       const files = event.target.files;
       if (!files || files.length === 0) {
-        console.log('No files in event');
         return;
       }
       
+      // Capture files immediately before resetting input
+      const filesCopy = Array.from(files);
+      const inputId = event.target.id;
+      
+      // Reset input immediately to close file picker on mobile
+      event.target.value = '';
+      
+      // Process asynchronously to avoid freezing
+      setTimeout(() => processVideoFilesAsync(filesCopy, inputId), 50);
+    }
+    
+    function processVideoFilesAsync(files, inputId) {
       // Check if this is a folder selection
-      const isFolderSelection = event.target.id === 'video-folder-input';
+      const isFolderSelection = inputId === 'video-folder-input';
       
       let videoFiles;
       
       if (isFolderSelection) {
         // For folder selection, filter for video files
-        videoFiles = Array.from(files).filter(file => {
+        videoFiles = files.filter(file => {
           const isVideoType = file.type && file.type.startsWith('video/');
           const name = file.name.toLowerCase();
           const isVideoExt = /\.(mp4|mov|avi|mkv|webm|m4v|3gp|3g2)$/.test(name);
@@ -6732,12 +6742,11 @@
         });
       } else {
         // For direct file selection, accept all files (user explicitly chose them)
-        videoFiles = Array.from(files);
+        videoFiles = files;
       }
       
       if (videoFiles.length === 0) {
         alert('No video files found in selection.');
-        event.target.value = '';
         return;
       }
       
@@ -6775,7 +6784,6 @@
       
       if (videoFiles.length === 0) {
         alert(`No video files found matching the track timeframe.\n\n${timeframeFilteredCount} video(s) were outside the sailing session time window.`);
-        event.target.value = '';
         return;
       }
       
@@ -6839,7 +6847,23 @@
       });
       
       // Second pass: create video elements with adjusted timestamps
-      fileInfos.forEach(({ file, info }) => {
+      // Use setTimeout to avoid blocking the UI on mobile with large files
+      const processVideoFile = (index) => {
+        if (index >= fileInfos.length) {
+          // All files processed - update display
+          document.getElementById('remove-videos-btn').style.display = '';
+          updateActiveVideoDisplay();
+          updateBufferingStatus();
+          return;
+        }
+        
+        // Show loading progress
+        const placeholder = document.getElementById('video-placeholder');
+        if (placeholder) {
+          placeholder.textContent = `Loading video ${index + 1} of ${fileInfos.length}...`;
+        }
+        
+        const { file, info } = fileInfos[index];
         let timestampMs = info.baseTimestampMs;
         
         // Apply sequence offset (30 min per increment from minimum)
@@ -6852,106 +6876,41 @@
         const referenceStartMs = getPlaybackStartTimeMs();
         const offsetMs = timestampMs - referenceStartMs;
         
+        // Create video element but DON'T set src yet (lazy load to avoid freezing on mobile)
         const video = document.createElement('video');
-        video.src = URL.createObjectURL(file);
         video.muted = playbackSpeed > 2;
         video.playsInline = true;
         video.setAttribute('playsinline', '');  // iOS Safari
         video.setAttribute('webkit-playsinline', '');  // Older iOS Safari
-        video.preload = 'auto';  // Full preload for smooth playback
-        video.disableRemotePlayback = true;  // Disable cast button overhead
-        video.disablePictureInPicture = true;  // Disable PiP overhead
-        video.setAttribute('fetchpriority', 'high');  // High fetch priority
-        video.style.display = 'none';  // Hidden until becomes active
+        video.preload = 'metadata';  // Only load metadata initially
+        video.disableRemotePlayback = true;
+        video.disablePictureInPicture = true;
+        video.style.display = 'none';
         
         const videoData = {
           element: video,
+          file: file,  // Store file reference for lazy loading
           filename: file.name,
           startTimestampMs: timestampMs,
           offsetMs: offsetMs,
-          durationSec: 0,  // Will be set when metadata loads
-          endTimestampMs: timestampMs,  // Will be updated
+          durationSec: 0,
+          endTimestampMs: timestampMs,
           baseKey: info.baseKey,
           sequenceNum: info.sequenceNum,
           buffered: false,
           bufferProgress: 0,
-          isWaiting: false
+          isWaiting: false,
+          loaded: false  // Track if URL has been created
         };
         
-        // Get duration when metadata loads
-        video.addEventListener('loadedmetadata', () => {
-          videoData.durationSec = video.duration;
-          videoData.endTimestampMs = timestampMs + video.duration * 1000;
-          // Re-render timeline to show video range
-          renderVideoTimelineMarkers();
-        });
-        
-        // Track when video is stalled/waiting for data - pause playback to maintain sync
-        video.addEventListener('waiting', () => {
-          videoData.isWaiting = true;
-          // Only pause if this is the active video
-          if (currentActiveVideo === videoData && isPlaying) {
-            videoStalled = true;
-            updateVideoStatusIndicator();
-          }
-        });
-        
-        video.addEventListener('stalled', () => {
-          videoData.isWaiting = true;
-          // Only pause if this is the active video
-          if (currentActiveVideo === videoData && isPlaying) {
-            videoStalled = true;
-            updateVideoStatusIndicator();
-          }
-        });
-        
-        video.addEventListener('playing', () => {
-          videoData.isWaiting = false;
-          // Resume playback if this was causing the stall
-          if (currentActiveVideo === videoData) {
-            videoStalled = false;
-          }
-          updateVideoStatusIndicator();
-        });
-        
-        // Also reset waiting state when video can play through
-        video.addEventListener('canplay', () => {
-          videoData.isWaiting = false;
-          if (currentActiveVideo === videoData) {
-            videoStalled = false;
-          }
-        });
-        
-        // Track buffering progress
-        video.addEventListener('progress', () => {
-          if (video.buffered.length > 0 && video.duration > 0) {
-            const bufferedEnd = video.buffered.end(video.buffered.length - 1);
-            videoData.bufferProgress = Math.round((bufferedEnd / video.duration) * 100);
-            // Use idle callback to avoid blocking video decoding
-            if (window.requestIdleCallback) {
-              requestIdleCallback(() => updateBufferingStatus(), { timeout: 500 });
-            } else {
-              setTimeout(() => updateBufferingStatus(), 100);
-            }
-          }
-        });
-        
-        // Mark as fully buffered when ready
-        video.addEventListener('canplaythrough', () => {
-          videoData.buffered = true;
-          videoData.bufferProgress = 100;
-          updateBufferingStatus();
-        });
-        
         loadedVideos.push(videoData);
-      });
+        
+        // Process next file after a short delay to keep UI responsive
+        setTimeout(() => processVideoFile(index + 1), 10);
+      };
       
-      // Show remove all button
-      document.getElementById('remove-videos-btn').style.display = '';
-      
-      // Update display
-      updateActiveVideoDisplay();
-      updateBufferingStatus();
+      // Start processing files (with initial delay to let file picker close)
+      setTimeout(() => processVideoFile(0), 100);
       
       // Reset file input
       event.target.value = '';
@@ -6966,7 +6925,9 @@
         if (video.element.parentNode) {
           video.element.parentNode.removeChild(video.element);
         }
-        URL.revokeObjectURL(video.element.src);
+        if (video.loaded) {
+          URL.revokeObjectURL(video.element.src);
+        }
         loadedVideos.splice(idx, 1);
       }
       
@@ -6992,7 +6953,9 @@
         if (v.element.parentNode) {
           v.element.parentNode.removeChild(v.element);
         }
-        URL.revokeObjectURL(v.element.src);
+        if (v.loaded) {
+          URL.revokeObjectURL(v.element.src);
+        }
       });
       loadedVideos = [];
       currentActiveVideo = null;
@@ -7096,6 +7059,76 @@
       return sorted[sorted.length - 1];
     }
     
+    // Lazy load video - create object URL only when needed
+    function ensureVideoLoaded(videoData) {
+      if (videoData.loaded) return;
+      
+      const video = videoData.element;
+      
+      // Create object URL now
+      video.src = URL.createObjectURL(videoData.file);
+      videoData.loaded = true;
+      
+      // Set up metadata listener
+      video.addEventListener('loadedmetadata', () => {
+        videoData.durationSec = video.duration;
+        videoData.endTimestampMs = videoData.startTimestampMs + video.duration * 1000;
+        renderVideoTimelineMarkers();
+      });
+      
+      // Track when video is stalled/waiting for data
+      video.addEventListener('waiting', () => {
+        videoData.isWaiting = true;
+        if (currentActiveVideo === videoData && isPlaying) {
+          videoStalled = true;
+          updateVideoStatusIndicator();
+        }
+      });
+      
+      video.addEventListener('stalled', () => {
+        videoData.isWaiting = true;
+        if (currentActiveVideo === videoData && isPlaying) {
+          videoStalled = true;
+          updateVideoStatusIndicator();
+        }
+      });
+      
+      video.addEventListener('playing', () => {
+        videoData.isWaiting = false;
+        if (currentActiveVideo === videoData) {
+          videoStalled = false;
+        }
+        updateVideoStatusIndicator();
+      });
+      
+      video.addEventListener('canplay', () => {
+        videoData.isWaiting = false;
+        if (currentActiveVideo === videoData) {
+          videoStalled = false;
+        }
+      });
+      
+      // Track buffering progress
+      video.addEventListener('progress', () => {
+        if (video.buffered.length > 0 && video.duration > 0) {
+          const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+          videoData.bufferProgress = Math.round((bufferedEnd / video.duration) * 100);
+          if (window.requestIdleCallback) {
+            requestIdleCallback(() => updateBufferingStatus(), { timeout: 500 });
+          } else {
+            setTimeout(() => updateBufferingStatus(), 100);
+          }
+        }
+      });
+      
+      // Mark as fully buffered when ready
+      video.addEventListener('canplaythrough', () => {
+        videoData.buffered = true;
+        videoData.bufferProgress = 100;
+        updateBufferingStatus();
+      });
+    }
+    
     function updateActiveVideoDisplay() {
       const container = document.getElementById('video-container');
       const targetVideo = getCurrentOrNextVideo();
@@ -7133,6 +7166,9 @@
       }
       
       currentActiveVideo = targetVideo;
+      
+      // Lazy load video source if not already loaded
+      ensureVideoLoaded(targetVideo);
       
       // Reset waiting/stalled state for newly active video
       targetVideo.isWaiting = false;
