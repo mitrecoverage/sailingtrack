@@ -395,6 +395,10 @@
       display: flex !important;
     }
     
+    #video-wrapper:fullscreen #video-performance-notification {
+      bottom: 100px !important;
+    }
+    
     #video-wrapper:fullscreen #video-fullscreen-btn {
       font-size: 22px !important;
     }
@@ -9438,7 +9442,7 @@
         const savedPlaybackTime = playbackTime;
         const savedLon360 = lon360;
         const savedLat360 = lat360;
-        const savedFov360 = threeCamera ? threeCamera.fov : 75;
+        const savedFov360 = threeCamera ? threeCamera.fov : 100;
         
         // Create render canvas
         const renderCanvas = document.createElement('canvas');
@@ -17275,15 +17279,30 @@
       renderVideoMinimap();
     }
 
-    function togglePlayback() {
-      if (isPlaying) {
-        stopPlayback();
-      } else {
-        startPlayback();
+    // Playback toggle mutex to prevent race conditions
+    let playbackToggleLock = false;
+    
+    async function togglePlayback() {
+      // Prevent rapid toggle race conditions
+      if (playbackToggleLock) {
+        console.log('togglePlayback: locked, ignoring');
+        return;
+      }
+      
+      playbackToggleLock = true;
+      try {
+        if (isPlaying) {
+          await stopPlayback();
+        } else {
+          await startPlayback();
+        }
+      } finally {
+        // Release lock after a short delay to debounce rapid presses
+        setTimeout(() => { playbackToggleLock = false; }, 100);
       }
     }
 
-    function startPlayback() {
+    async function startPlayback() {
       if (!raceReplayMode) return;
       
       const duration = getPlaybackDuration();
@@ -17305,11 +17324,11 @@
       });
       playbackAnimationId = requestAnimationFrame(playbackLoop);
       
-      // Start videos
-      playAllVideos();
+      // Start videos - await to ensure proper sequencing
+      await playAllVideos();
     }
 
-    function stopPlayback() {
+    async function stopPlayback() {
       isPlaying = false;
       // Update all playback buttons (main and fullscreen)
       document.querySelectorAll('#playback-btn').forEach(btn => {
@@ -17321,8 +17340,8 @@
         playbackAnimationId = null;
       }
       
-      // Pause videos
-      pauseAllVideos();
+      // Pause videos - await to ensure proper sequencing
+      await pauseAllVideos();
       
       // Force UI update to clear any buffering status
       updateVideoOverlays();
@@ -20066,7 +20085,7 @@
             viewMode360: viewMode360,
             tiltCorrection360: tiltCorrection360,
             tilt2Correction360: tilt2Correction360,
-            linearFov: threeCamera ? threeCamera.fov : 75
+            linearFov: threeCamera ? threeCamera.fov : 100
           };
           hasUserViewState360 = true;  // Mark that we have real user state to restore
           console.log('Saved 360 view state:', savedViewState360);
@@ -20200,7 +20219,7 @@
               <span id="video-buffer-indicator" style="font-size:9px;${targetVideo.buffered ? 'color:#22c55e;' : 'color:#f59e0b;'}">${targetVideo.buffered ? '✓' : `${targetVideo.bufferProgress || 0}%`}</span>
               ${targetVideo.is360Video ? `
                 <span id="orient-tag-360" class="orient-tag ${currentOrientation360}" onclick="toggle360Orientation()" style="pointer-events:auto;">${currentOrientation360.toUpperCase()}</span>
-                <span id="view-mode-tag-360" class="view-mode-tag" onclick="toggle360ViewMode()" style="pointer-events:auto;">${viewMode360 === '360' ? 'Linear 75°' : `MEGA ${megaHFov}°`}</span>
+                <span id="view-mode-tag-360" class="view-mode-tag" onclick="toggle360ViewMode()" style="pointer-events:auto;">${viewMode360 === '360' ? 'Linear 100°' : `MEGA ${megaHFov}°`}</span>
               ` : ''}
             </div>
             <div id="video-telemetry-overlay" class="fs-widget${isFullscreen && widgetState['video-telemetry-overlay']?.dragged ? ' dragged' : ''}${isFullscreen && widgetState['video-telemetry-overlay']?.minimized ? ' minimized' : ''}" style="position:absolute;background:rgba(0,0,0,0.7);color:white;padding:6px 10px;border-radius:4px;font-size:12px;font-family:monospace;text-align:right;line-height:1.5;display:${isActive ? 'block' : 'none'};${isFullscreen && widgetState['video-telemetry-overlay']?.dragged ? `top:${widgetState['video-telemetry-overlay'].y}px;left:${widgetState['video-telemetry-overlay'].x}px;` : ''}">
@@ -20263,9 +20282,9 @@
                 <option value="7.5">7.5 fps</option>
                 <option value="10">10 fps</option>
                 <option value="15">15 fps</option>
-                <option value="20">20 fps</option>
+                <option value="20" selected>20 fps</option>
                 <option value="25">25 fps</option>
-                <option value="30" selected>30 fps</option>
+                <option value="30">30 fps</option>
               </select>
               <select id="video-quality-selector" title="Render Quality" onchange="changeVideoQuality(this.value)" style="background:rgba(0,0,0,0.5);color:white;border:1px solid #555;border-radius:3px;font-size:10px;padding:2px 4px;cursor:pointer;">
                 <option value="low">Low</option>
@@ -20325,6 +20344,10 @@
             lat360 = savedViewState360.lat360;
             megaHFov = savedViewState360.megaHFov;
             viewMode360 = savedViewState360.viewMode360;
+            // Don't restore MEGA view for INSV videos (not supported)
+            if (current360Format === 'insv' && viewMode360 === 'megaview') {
+              viewMode360 = '360';
+            }
             tiltCorrection360 = savedViewState360.tiltCorrection360;
             tilt2Correction360 = savedViewState360.tilt2Correction360;
             if (threeCamera) {
@@ -22717,7 +22740,8 @@
         // Small drift corrections should NOT reset audio - audio has its own drift handling
         if (diffSeconds > 2.0 && current360Player && current360Player.audioScheduledUntil !== undefined) {
           console.log('Large timeline jump detected, resetting audio sync');
-          current360Player.audioScheduledUntil = 0;  // Force audio re-init
+          current360Player.audioScheduledUntil = 0;
+          current360Player.audioNextScheduleTime = 0;  // Force audio re-init
           current360Player.audioContextOffset = 0;   // Reset offset for recalculation
           current360Player.lastAudioSyncCheck = 0;   // Force immediate sync check
           current360Player.lastScheduledVideoTime = 0;  // Reset for audio sync detection
@@ -23256,10 +23280,10 @@
       }
     }
     
-    function pauseAllVideos() {
+    async function pauseAllVideos() {
       if (currentActiveVideo) {
         if (currentActiveVideo.is360Video && current360Player) {
-          current360Player.pause();
+          await current360Player.pause();
         } else {
           currentActiveVideo.element.pause();
         }
@@ -23311,7 +23335,7 @@
       viewMode360: '360',
       tiltCorrection360: 0,
       tilt2Correction360: 0,
-      linearFov: 75
+      linearFov: 100
     };
     let hasUserViewState360 = false;  // Only restore after user has interacted or first video loaded
     
@@ -23335,16 +23359,18 @@
     // Each step reduces either FPS or quality (or both), balancing smoothness vs sharpness
     const qualityLadder = [
       { fps: 30, texture: 1.0,  quality: 'ultra',  label: '30fps Ultra' },   // 0 - Best quality
-      { fps: 25, texture: 0.75, quality: 'high',   label: '25fps High' },    // 1
-      { fps: 20, texture: 0.75, quality: 'high',   label: '20fps High' },    // 2
-      { fps: 15, texture: 0.75, quality: 'high',   label: '15fps High' },    // 3 - Default for large videos
-      { fps: 15, texture: 0.5,  quality: 'medium', label: '15fps Medium' },  // 4
-      { fps: 10, texture: 0.5,  quality: 'medium', label: '10fps Medium' },  // 5
-      { fps: 10, texture: 0.25, quality: 'low',    label: '10fps Low' },     // 6
-      { fps: 7.5, texture: 0.25, quality: 'low',   label: '7.5fps Low' },    // 7 - Minimum
+      { fps: 25, texture: 1.0,  quality: 'ultra',  label: '25fps Ultra' },   // 1
+      { fps: 20, texture: 1.0,  quality: 'ultra',  label: '20fps Ultra' },   // 2 - Default
+      { fps: 25, texture: 0.75, quality: 'high',   label: '25fps High' },    // 3
+      { fps: 20, texture: 0.75, quality: 'high',   label: '20fps High' },    // 4
+      { fps: 15, texture: 0.75, quality: 'high',   label: '15fps High' },    // 5
+      { fps: 15, texture: 0.5,  quality: 'medium', label: '15fps Medium' },  // 6
+      { fps: 10, texture: 0.5,  quality: 'medium', label: '10fps Medium' },  // 7
+      { fps: 10, texture: 0.25, quality: 'low',    label: '10fps Low' },     // 8
+      { fps: 7.5, texture: 0.25, quality: 'low',   label: '7.5fps Low' },    // 9 - Minimum
     ];
-    const LARGE_VIDEO_DEFAULT_LEVEL = 3;  // 15fps High for large videos
-    let currentQualityLevel = 0;  // Current position in ladder
+    const LARGE_VIDEO_DEFAULT_LEVEL = 2;  // 20fps Ultra for all videos
+    let currentQualityLevel = 2;  // Start at 20fps Ultra
     
     // Legacy quality levels for UI selector compatibility
     const qualityLevels = ['ultra', 'high', 'medium', 'low'];
@@ -23965,7 +23991,7 @@
         this.currentTime = 0;
         this.duration = 0;
         this.frameRate = 30;
-        this.targetFps = 30;  // Target playback FPS (default: full rate)
+        this.targetFps = 20;  // Target playback FPS (default: 20fps ultra)
         this.frameSkip = 1;   // Average frames between kept frames (1 = keep all)
         this.lastKeptOutputIndex = -1;  // For non-integer frame skip tracking
         
@@ -24094,6 +24120,7 @@
         this.audioBuffer = [];
         this.audioBufferIndex = 0;
         this.audioScheduledUntil = 0;
+        this.audioNextScheduleTime = 0;
         this.audioGain = null;
         this.audioBufferingActive = false;
         this.audioContextStartTime = 0;
@@ -24102,14 +24129,16 @@
         this.audioSyncContextTime = 0;
         this.lastAudioSpeed = 1;  // Track playback speed for audio sync
         this.lastAudioMuted = false;  // Track mute state for unmute resync
+        this.audioTrackOffset = 0;  // Offset between audio and video track timestamps
         
         // Audio-Video sync tracking
         this.audioContextOffset = 0;      // Difference: audioContext.currentTime - videoTime at sync point
         this.lastAudioSyncCheck = 0;      // Last time we checked audio-video sync
-        this.audioSyncCheckInterval = 1000;  // Check sync every 1 second
-        this.audioSyncThreshold = 0.3;    // Resync if actual drift > 300ms
+        this.audioSyncCheckInterval = 500;   // Check sync every 500ms for responsive corrections
+        this.audioSyncThreshold = 1.5;    // Hard resync threshold (for seeks/large discontinuities)
         this.lastScheduledVideoTime = 0;  // Video time of last scheduled audio chunk
         this.lastActualAudioDrift = 0;    // Actual audio-video drift (for diagnostics)
+        this.audioNextScheduleTime = 0;   // Sequential tracking: exact time next batch should start
         
         // Direct audio position tracking (ground truth for sync detection)
         this.audioPositionRef = null;     // { playTime, videoTime } - reference point for tracking
@@ -24320,23 +24349,12 @@
         
         console.log(`Video: ${this.width}x${this.height} @ ${this.frameRate.toFixed(1)}fps, ${this.totalFrames} frames`);
         
-        // Start with 15fps High for large videos - good balance of quality and performance
-        // Large dual-stream videos (2880x2880+) benefit from controlled start
+        // Default: 20fps Ultra for all video sizes
+        // Large dual-stream videos (2880x2880+) use same defaults - quality is user-adjustable
         const pixelCount = this.width * this.height * 2;  // Both tracks
-        if (pixelCount > 10000000) {  // >10M pixels (e.g., 2x 2880x2880 = 16.6M)
-          this.targetFps = 15;  // Start at 15fps (smooth enough for viewing)
-          this.frameSkip = Math.max(1, Math.round(this.frameRate / this.targetFps));
-          console.log(`Large video detected (${(pixelCount/1000000).toFixed(1)}M pixels), starting at ${this.targetFps}fps (frameSkip: ${this.frameSkip})`);
-          // Start with high quality texture (0.75) - good clarity while manageable
-          if (this.textureScale > 0.75) {
-            this.textureScale = 0.75;  // Cap at 75% (high) for large videos
-            console.log(`Texture scale set to ${this.textureScale} (high) for large video`);
-          }
-        } else if (pixelCount > 4000000) {  // >4M pixels
-          this.targetFps = 20;
-          this.frameSkip = Math.max(1, Math.round(this.frameRate / this.targetFps));
-          console.log(`Medium video detected (${(pixelCount/1000000).toFixed(1)}M pixels), starting at ${this.targetFps}fps`);
-        }
+        this.targetFps = 20;
+        this.frameSkip = Math.max(1, Math.round(this.frameRate / this.targetFps));
+        console.log(`Video detected (${(pixelCount/1000000).toFixed(1)}M pixels), starting at ${this.targetFps}fps Ultra (frameSkip: ${this.frameSkip})`);
         
         // Setup canvases - use scaled resolution for better performance
         // Source canvases at full resolution for VideoFrame drawing
@@ -24470,6 +24488,35 @@
               };
             }
             console.log(`Audio: ${this.audioSampleMeta.length} samples indexed`);
+            
+            // DIAGNOSTIC: Log first and last audio sample timestamps to detect track offset
+            if (this.audioSampleMeta.length > 0) {
+              const first = this.audioSampleMeta[0];
+              const last = this.audioSampleMeta[this.audioSampleMeta.length - 1];
+              const firstTime = first.cts / this.audioTrack.timescale;
+              const lastTime = last.cts / this.audioTrack.timescale;
+              console.log('INSV AUDIO DIAG: audio timestamps range: ' + firstTime.toFixed(3) + 
+                         's to ' + lastTime.toFixed(3) + 
+                         's (timescale=' + this.audioTrack.timescale + 
+                         ', first.cts=' + first.cts + ', first.dts=' + first.dts + ')');
+              
+              // Compare with video track
+              if (this.sampleMeta[0] && this.sampleMeta[0].length > 0) {
+                const vFirst = this.sampleMeta[0][0];
+                const vTimescale = this.tracks[0].timescale;
+                const vFirstTime = vFirst.cts / vTimescale;
+                const trackOffset = firstTime - vFirstTime;
+                console.log('INSV AUDIO DIAG: video first timestamp: ' + vFirstTime.toFixed(3) + 
+                           's (timescale=' + vTimescale + ', cts=' + vFirst.cts + ')' +
+                           ' | audio-video offset: ' + (trackOffset * 1000).toFixed(0) + 'ms');
+                if (Math.abs(trackOffset) > 0.1) {
+                  console.warn('INSV AUDIO DIAG: SIGNIFICANT audio-video track offset detected: ' + 
+                              (trackOffset * 1000).toFixed(0) + 'ms');
+                  // Store offset for compensation during scheduling
+                  this.audioTrackOffset = trackOffset;
+                }
+              }
+            }
           }
         } else {
           console.log('No audio track found');
@@ -24703,7 +24750,9 @@
         }
         
         // Calculate video time for this audio chunk (timestamp is in microseconds)
-        const videoTime = audioData.timestamp / 1000000;
+        // Apply audioTrackOffset compensation if audio and video tracks have different start times
+        const rawVideoTime = audioData.timestamp / 1000000;
+        const videoTime = rawVideoTime - (this.audioTrackOffset || 0);
         
         this.audioBuffer.push({
           buffer: audioBuffer,
@@ -24764,12 +24813,26 @@
       
       scheduleAudio() {
         const audioStart = performance.now();
-        if (!this.audioContext || this.audioBuffer.length === 0) return;
+        if (!this.audioContext) return;
         if (this.audioContext.state !== 'running') return;
         
         // Don't start audio scheduling until video wall-clock has started
         // This ensures currentTime is being updated before we sync audio
         if (!this.wallClockStart) return;
+        
+        // Log when buffer is empty during playback (potential audio starvation)
+        if (this.audioBuffer.length === 0) {
+          const currentLead = this.audioScheduledUntil - (this.audioContext ? this.audioContext.currentTime : 0);
+          if (this.playing && currentLead < 0.5) {
+            if (!this._lastEmptyBufLog || audioStart - this._lastEmptyBufLog > 500) {
+              this._lastEmptyBufLog = audioStart;
+              console.warn('INSV AUDIO: buffer empty during playback, lead=' + (currentLead * 1000).toFixed(0) + 
+                          'ms, bufIdx=' + this.audioBufferIndex + '/' + this.audioSampleMeta.length +
+                          ', decoderState=' + (this.audioDecoder ? this.audioDecoder.state : 'null'));
+            }
+          }
+          return;
+        }
         
         const effectiveSpeed = typeof playbackSpeed !== 'undefined' ? playbackSpeed : 1;
         const isMuted = effectiveSpeed > 2;
@@ -24778,9 +24841,11 @@
         const wasMuted = this.lastAudioMuted || false;
         this.lastAudioMuted = isMuted;
         
-        // Mute audio at high speeds (>2x)
+        // Mute audio at high speeds (>2x) - use smooth gain transition to avoid clicks
         if (isMuted) {
-          this.audioGain.gain.value = 0;
+          if (this.audioGain.gain.value !== 0) {
+            this.audioGain.gain.setTargetAtTime(0, this.audioContext.currentTime, 0.015);
+          }
           // Still consume audio buffer to prevent it from growing
           while (this.audioBuffer.length > 100) {
             this.audioBuffer.shift();
@@ -24789,7 +24854,10 @@
           this.lastAudioSpeed = effectiveSpeed;
           return;
         } else {
-          this.audioGain.gain.value = 1;
+          // Smooth unmute transition to avoid clicks
+          if (this.audioGain.gain.value < 0.99) {
+            this.audioGain.gain.setTargetAtTime(1, this.audioContext.currentTime, 0.015);
+          }
         }
         
         const currentAudioTime = this.audioContext.currentTime;
@@ -24820,10 +24888,12 @@
           this.lastAudioSpeed = effectiveSpeed;
           this.lastAudioSyncCheck = now;
           this.audioPositionRef = null;
+          // Reset sequential tracking for concatenated scheduling
+          this.audioNextScheduleTime = currentAudioTime;
           
           // CRITICAL: Discard any audio chunks that are too far behind current video position
           // This ensures we start playing audio that matches the current video frame
-          const maxBehind = 0.2;  // Allow audio to be at most 200ms behind video
+          const maxBehind = 0.15;  // Allow audio to be at most 150ms behind video
           let discardedCount = 0;
           while (this.audioBuffer.length > 0) {
             const chunk = this.audioBuffer[0];
@@ -24842,6 +24912,20 @@
           
           if (discardedCount > 0) {
             console.log('INSV audio init: discarded ' + discardedCount + ' stale chunks to sync with video at ' + currentVideoTime.toFixed(2) + 's');
+          }
+          
+          // DIAGNOSTIC: Log first chunk's videoTime vs currentVideoTime to detect track offset
+          if (this.audioBuffer.length > 0 && this.audioBuffer[0].videoTime !== undefined) {
+            const firstChunkVT = this.audioBuffer[0].videoTime;
+            const offset = firstChunkVT - currentVideoTime;
+            console.log('INSV AUDIO DIAG init: firstChunk.videoTime=' + firstChunkVT.toFixed(3) + 
+                       's, currentVideoTime=' + currentVideoTime.toFixed(3) + 
+                       's, offset=' + (offset * 1000).toFixed(0) + 'ms' +
+                       ', buffer=' + this.audioBuffer.length + ' chunks' +
+                       ', audioBufferIndex=' + this.audioBufferIndex);
+            if (Math.abs(offset) > 0.5) {
+              console.warn('INSV AUDIO DIAG: LARGE offset between audio and video timestamps! (' + (offset * 1000).toFixed(0) + 'ms)');
+            }
           }
           
           console.log('INSV audio sync initialized: videoTime=' + currentVideoTime.toFixed(2) + 
@@ -24876,220 +24960,278 @@
           this.lastAudioSyncCheck = now;
           // Reset scheduling position to allow fresh scheduling
           this.audioScheduledUntil = currentAudioTime;
+          this.audioNextScheduleTime = currentAudioTime;
           this.audioPositionRef = null;
         }
         
-        // Periodic sync check: compare ACTUAL audio playback position vs video position
-        // Only check if we have a position reference (set when audio starts scheduling)
-        if (this.audioPositionRef && now - this.lastAudioSyncCheck > this.audioSyncCheckInterval) {
+        // Periodic sync check: find the CURRENTLY PLAYING audio chunk and compare
+        // its expected video position with actual video position.
+        // This is ground truth - no separate position reference needed.
+        if (this.scheduledAudioSources && this.scheduledAudioSources.length > 0 && 
+            now - this.lastAudioSyncCheck > this.audioSyncCheckInterval) {
           this.lastAudioSyncCheck = now;
           
-          // Calculate actual audio playback position using tracked reference point
-          // This is ground truth: we know chunk at videoTime X started at audioContext time Y
-          const timeSinceRef = currentAudioTime - this.audioPositionRef.playTime;
-          
-          // Skip drift check if reference is stale (more than 2 seconds old)
-          // This can happen if audio buffering paused or chunks were filtered out
-          if (timeSinceRef > 2.0) {
-            // Reference is stale - clear it so a new one will be set
-            this.audioPositionRef = null;
-            // Continue to scheduling below - don't return!
-          } else {
-            // Reference is fresh - do drift detection
-            let audioNowVideoTime;
-            
-            if (timeSinceRef < 0) {
-              // Reference chunk hasn't started playing yet
-              audioNowVideoTime = this.audioPositionRef.videoTime;
-            } else {
-              // Reference chunk is playing or has played
-              // At speed S, real time * S = video time elapsed
-              audioNowVideoTime = this.audioPositionRef.videoTime + timeSinceRef * effectiveSpeed;
+          // Find the chunk currently being played by the audio hardware
+          let playingChunk = null;
+          for (const s of this.scheduledAudioSources) {
+            if (s.startTime <= currentAudioTime && currentAudioTime < s.endTime && s.videoTime !== null) {
+              if (!playingChunk || s.startTime > playingChunk.startTime) {
+                playingChunk = s;
+              }
             }
-            
+          }
+          
+          if (playingChunk) {
+            // Calculate where in the video the audio THINKS we are
+            const elapsedInChunk = currentAudioTime - playingChunk.startTime;
+            const audioNowVideoTime = playingChunk.videoTime + elapsedInChunk * effectiveSpeed;
             const actualDrift = audioNowVideoTime - currentVideoTime;
-            
-            // Calculate scheduling health
             const schedulingLead = this.audioScheduledUntil - currentAudioTime;
-            const schedulingHealthy = schedulingLead > 0.1;  // At least 100ms of audio scheduled
             
-            // Store for UI display and diagnostics
+            // Store for UI display
             this.lastActualAudioDrift = actualDrift;
             this.audioSchedulingLead = schedulingLead;
             
-            // Only resync if:
-            // 1. Drift exceeds threshold AND
-            // 2. Scheduling is unhealthy (about to underrun) OR drift is severe (>300ms)
-            const driftExceedsThreshold = Math.abs(actualDrift) > this.audioSyncThreshold;
-            const severeCondition = !schedulingHealthy || Math.abs(actualDrift) > 0.3;
+            const absDrift = Math.abs(actualDrift);
             
-            if (driftExceedsThreshold && severeCondition) {
-              console.log('INSV audio drift detected: ' + (actualDrift * 1000).toFixed(0) + 'ms, resyncing');
-              console.log('  videoTime=' + currentVideoTime.toFixed(2) + 
-                          's, audioAt=' + audioNowVideoTime.toFixed(2) + 's' +
-                          ', lead=' + (schedulingLead * 1000).toFixed(0) + 'ms' +
-                          ', ref=' + this.audioPositionRef.videoTime.toFixed(2) + 's@' + 
-                          this.audioPositionRef.playTime.toFixed(2) + 's');
+            // THREE-TIER DRIFT HANDLING:
+            // Tier 1 (<300ms): ignore — normal clock jitter and scheduling variance
+            // Tier 2 (300ms-1.5s): SOFT CORRECTION — nudge scheduling timeline
+            // Tier 3 (>1.5s): HARD RESYNC — stop audio and restart from current position
             
-            // Resync: reset reference point and scheduling
-            this.audioContextOffset = currentAudioTime - currentVideoTime;
-            this.audioScheduledUntil = currentAudioTime;
-            this.audioSyncVideoTime = currentVideoTime;
-            this.audioSyncContextTime = currentAudioTime;
-            this.lastScheduledVideoTime = 0;
-            this.audioPositionRef = null;  // Will be set when next chunk is scheduled
-            
-            // Stop all scheduled audio sources - they're at wrong times
-            if (this.scheduledAudioSources && this.scheduledAudioSources.length > 0) {
+            if (absDrift > this.audioSyncThreshold) {
+              // TIER 3: HARD RESYNC
+              console.log('INSV audio HARD resync: drift=' + (actualDrift * 1000).toFixed(0) + 'ms' +
+                         ', playing chunk vt=' + playingChunk.videoTime.toFixed(2) +
+                         ', videoTime=' + currentVideoTime.toFixed(2));
+              
+              this.audioContextOffset = currentAudioTime - currentVideoTime;
+              this.audioScheduledUntil = currentAudioTime;
+              this.audioNextScheduleTime = currentAudioTime;
+              this.audioSyncVideoTime = currentVideoTime;
+              this.audioSyncContextTime = currentAudioTime;
+              this.lastScheduledVideoTime = 0;
+              this.audioPositionRef = null;
+              
+              // Stop all scheduled audio sources
               for (const scheduled of this.scheduledAudioSources) {
-                try {
-                  if (scheduled.endTime > currentAudioTime) {
-                    scheduled.source.stop();
-                  }
-                } catch (e) {
-                  // Source may already be stopped
-                }
+                try { if (scheduled.endTime > currentAudioTime) scheduled.source.stop(); } catch (e) {}
               }
               this.scheduledAudioSources = [];
-            }
-            
-            // SMART BUFFER REUSE: Instead of clearing buffer, filter to keep usable chunks
-            // Keep chunks that are within [-0.1s, +2s] of current video time
-            const minVideoTime = currentVideoTime - 0.1;
-            const maxVideoTime = currentVideoTime + 2.0;
-            const originalLength = this.audioBuffer.length;
-            
-            this.audioBuffer = this.audioBuffer.filter(chunk => {
-              if (chunk.videoTime === undefined) return false;
-              return chunk.videoTime >= minVideoTime && chunk.videoTime <= maxVideoTime;
-            });
-            
-            const keptChunks = this.audioBuffer.length;
-            console.log('INSV audio resync: kept ' + keptChunks + '/' + originalLength + ' buffer chunks');
-            
-            // Reset audio decoder to flush any in-flight chunks (from before resync)
-            // This prevents old decoded chunks from arriving and causing further issues
-            if (this.audioDecoder && this.audioDecoder.state === 'configured') {
-              try {
-                this.audioDecoder.reset();
-                // Reconfigure after reset
-                const audioConfig = {
-                  codec: this.audioTrack.codec,
-                  sampleRate: this.audioTrack.audio.sample_rate,
-                  numberOfChannels: this.audioTrack.audio.channel_count,
-                };
-                if (this.audioDescription) {
-                  audioConfig.description = this.audioDescription;
+              
+              // Filter buffer to usable range
+              const minVT = currentVideoTime - 0.15;
+              const maxVT = currentVideoTime + 2.0;
+              this.audioBuffer = this.audioBuffer.filter(c => 
+                c.videoTime !== undefined && c.videoTime >= minVT && c.videoTime <= maxVT
+              );
+              
+              // Reset decoder for large time jumps
+              if (this.audioDecoder && this.audioDecoder.state === 'configured') {
+                try {
+                  this.audioDecoder.reset();
+                  const audioConfig = {
+                    codec: this.audioTrack.codec,
+                    sampleRate: this.audioTrack.audio.sample_rate,
+                    numberOfChannels: this.audioTrack.audio.channel_count,
+                  };
+                  if (this.audioDescription) audioConfig.description = this.audioDescription;
+                  this.audioDecoder.configure(audioConfig);
+                } catch (e) { console.error('Audio decoder reset error:', e); }
+              }
+              
+              // Reposition decode index
+              if (this.audioBuffer.length < 10 && this.audioTrack && this.audioSampleMeta.length > 0) {
+                const timescale = this.audioTrack.timescale;
+                const targetCts = currentVideoTime * timescale;
+                let lo = 0, hi = this.audioSampleMeta.length - 1;
+                while (lo < hi) {
+                  const mid = Math.floor((lo + hi) / 2);
+                  if (this.audioSampleMeta[mid].cts < targetCts) lo = mid + 1;
+                  else hi = mid;
                 }
-                this.audioDecoder.configure(audioConfig);
-                console.log('INSV audio decoder reset to flush in-flight chunks');
-              } catch (e) {
-                console.error('Audio decoder reset error:', e);
+                this.audioBufferIndex = Math.max(0, lo - 5);
+              }
+              
+              // Fall through to scheduling — don't return!
+              
+            } else if (absDrift > 0.3) {
+              // TIER 2: SOFT CORRECTION — nudge scheduling timeline without stopping audio
+              const correction = actualDrift * 0.4;
+              const correctionRealTime = correction / effectiveSpeed;
+              
+              this.audioNextScheduleTime -= correctionRealTime;
+              this.audioScheduledUntil -= correctionRealTime;
+              
+              if (!this._lastSoftCorrLog || now - this._lastSoftCorrLog > 3000) {
+                console.log('INSV audio soft correction: drift=' + (actualDrift * 1000).toFixed(0) + 
+                           'ms, correction=' + (correctionRealTime * 1000).toFixed(0) + 'ms' +
+                           ', chunk vt=' + playingChunk.videoTime.toFixed(2));
+                this._lastSoftCorrLog = now;
               }
             }
-            
-            // Reset audioBufferIndex to current video position if buffer is low
-            if (keptChunks < 10 && this.audioTrack && this.audioSampleMeta.length > 0) {
-              const timescale = this.audioTrack.timescale;
-              const targetCts = currentVideoTime * timescale;
-              // Binary search for the correct position
-              let lo = 0, hi = this.audioSampleMeta.length - 1;
-              while (lo < hi) {
-                const mid = Math.floor((lo + hi) / 2);
-                if (this.audioSampleMeta[mid].cts < targetCts) {
-                  lo = mid + 1;
-                } else {
-                  hi = mid;
-                }
-              }
-              this.audioBufferIndex = Math.max(0, lo - 5);
-              console.log('INSV audio resync: audioBufferIndex reset to', this.audioBufferIndex);
-            }
-            
-            return;
+            // Tier 1: drift <= 300ms — no action needed
           }
-          }  // End of else block (fresh reference)
         }
+
         
-        // Schedule audio chunks
-        // Use video time as reference: audio for videoTime T should play at audioContext time T + offset
+        // =====================================================================
+        // CHUNK CONCATENATION + SEQUENTIAL SCHEDULING
+        // Instead of scheduling each ~21ms decoded chunk as a separate AudioBufferSourceNode
+        // (which causes clicks at every boundary), we concatenate consecutive chunks into
+        // larger ~300ms buffers and schedule those. This reduces source boundaries from
+        // ~47/sec to ~3/sec, virtually eliminating inter-chunk artifacts.
+        // =====================================================================
+        
+        const CONCAT_TARGET_DURATION = 0.3;  // Target ~300ms concatenated buffers
+        const MAX_SCHEDULE_LEAD = 1.5;       // Schedule up to 1.5s ahead
+        const sampleRate = this.audioTrack ? this.audioTrack.audio.sample_rate : 48000;
+        const numChannels = this.audioTrack ? this.audioTrack.audio.channel_count : 1;
+        
+        // Collect chunks to concatenate
+        let _staleDiscarded = 0;
+        let _batchesScheduled = 0;
         while (this.audioBuffer.length > 0) {
-          const audio = this.audioBuffer[0];
-          
-          // CRITICAL: Check if this audio chunk is for the current video position
-          // After a seek, old async-decoded chunks may arrive - discard them
-          if (audio.videoTime !== undefined) {
-            const chunkVideoTime = audio.videoTime;
-            
+          // First, filter out stale/future chunks
+          const peekChunk = this.audioBuffer[0];
+          if (peekChunk.videoTime !== undefined) {
             // Skip audio chunks that are TOO FAR BEHIND current video position
-            // (these are old chunks that would sound out of sync)
-            if (chunkVideoTime < currentVideoTime - 0.3) {
+            if (peekChunk.videoTime < currentVideoTime - 0.15) {
               this.audioBuffer.shift();
+              _staleDiscarded++;
               continue;
             }
-            
-            // Skip audio chunks that are TOO FAR AHEAD (shouldn't happen normally)
-            if (chunkVideoTime > currentVideoTime + 3.0) {
-              break;  // Wait for video to catch up
+            // Stop if chunks are TOO FAR AHEAD
+            if (peekChunk.videoTime > currentVideoTime + 3.0) {
+              break;
             }
           }
           
-          // Calculate when this chunk SHOULD play based on its video time
-          // At speed S, video time advances S times faster than real (audio context) time
-          // So: realTimeDelta = videoTimeDelta / speed
-          // scheduleTime = currentAudioTime + (chunkVideoTime - currentVideoTime) / speed
-          let scheduleTime;
-          if (audio.videoTime !== undefined) {
-            // Schedule based on chunk's actual video time, adjusted for playback speed
-            const videoTimeDelta = audio.videoTime - currentVideoTime;
+          // Calculate where this batch should start playing
+          // Use sequential tracking: start where the last batch ended
+          // This ensures sample-accurate gapless playback between batches
+          let batchStartTime = this.audioNextScheduleTime || this.audioScheduledUntil;
+          
+          // For the first batch (no position ref yet), use video-time alignment
+          if (peekChunk.videoTime !== undefined && this.audioPositionRef === null) {
+            const videoTimeDelta = peekChunk.videoTime - currentVideoTime;
             const realTimeDelta = videoTimeDelta / effectiveSpeed;
-            scheduleTime = currentAudioTime + realTimeDelta;
-            
-            // Debug: log first schedule at non-1x speed
-            if (effectiveSpeed !== 1 && !this._loggedSpeedSchedule) {
-              console.log('INSV audio schedule at ' + effectiveSpeed + 'x: chunkVideoTime=' + audio.videoTime.toFixed(2) + 
-                         's, currentVideoTime=' + currentVideoTime.toFixed(2) + 's, videoTimeDelta=' + videoTimeDelta.toFixed(3) + 
-                         's, realTimeDelta=' + realTimeDelta.toFixed(3) + 's');
-              this._loggedSpeedSchedule = true;
+            const videoBasedStart = currentAudioTime + realTimeDelta;
+            // Use video-based time if sequential tracking diverged by >150ms
+            if (Math.abs(batchStartTime - videoBasedStart) > 0.15) {
+              batchStartTime = videoBasedStart;
             }
-          } else {
-            // Fallback to sequential scheduling
-            scheduleTime = this.audioScheduledUntil;
           }
           
-          // Don't schedule in the past
-          scheduleTime = Math.max(scheduleTime, currentAudioTime);
+          // Don't schedule in the past - but use a small lookback to avoid gaps
+          batchStartTime = Math.max(batchStartTime, currentAudioTime - 0.005);
           
-          // Don't schedule too far ahead of current time (0.5s lead max)
-          if (scheduleTime > currentAudioTime + 0.5) {
+          // Don't schedule too far ahead
+          if (batchStartTime > currentAudioTime + MAX_SCHEDULE_LEAD) {
             break;
           }
           
-          this.audioBuffer.shift();
+          // Collect consecutive chunks into a batch for concatenation
+          const chunksToConcat = [];
+          let totalFrames = 0;
+          let batchVideoTimeStart = null;
+          let batchVideoTimeEnd = null;
+          
+          while (this.audioBuffer.length > 0) {
+            const chunk = this.audioBuffer[0];
+            
+            // Stop collecting if chunk is too far behind or ahead
+            if (chunk.videoTime !== undefined) {
+              if (chunk.videoTime < currentVideoTime - 0.15) {
+                this.audioBuffer.shift();
+                continue;  // Skip stale, keep collecting
+              }
+              if (chunk.videoTime > currentVideoTime + 3.0) {
+                break;
+              }
+            }
+            
+            // Check if adding this chunk would exceed our schedule lead
+            const chunkDurationAtSpeed = chunk.buffer.duration / effectiveSpeed;
+            const projectedEnd = batchStartTime + (totalFrames / sampleRate) / effectiveSpeed + chunkDurationAtSpeed;
+            if (projectedEnd > currentAudioTime + MAX_SCHEDULE_LEAD && chunksToConcat.length > 0) {
+              break;  // Don't exceed lead, but always take at least one chunk
+            }
+            
+            this.audioBuffer.shift();
+            chunksToConcat.push(chunk);
+            totalFrames += chunk.buffer.length;
+            
+            if (batchVideoTimeStart === null && chunk.videoTime !== undefined) {
+              batchVideoTimeStart = chunk.videoTime;
+            }
+            if (chunk.videoTime !== undefined) {
+              batchVideoTimeEnd = chunk.videoTime + chunk.buffer.duration;
+            }
+            
+            // Stop when we've collected enough for our target duration
+            const batchDuration = totalFrames / sampleRate;
+            if (batchDuration >= CONCAT_TARGET_DURATION) {
+              break;
+            }
+          }
+          
+          if (chunksToConcat.length === 0) break;
           
           try {
+            // Concatenate all collected chunks into one AudioBuffer
+            let concatBuffer;
+            if (chunksToConcat.length === 1) {
+              // Single chunk - no concatenation needed
+              concatBuffer = chunksToConcat[0].buffer;
+            } else {
+              // Create concatenated buffer
+              concatBuffer = this.audioContext.createBuffer(numChannels, totalFrames, sampleRate);
+              let writeOffset = 0;
+              for (const chunk of chunksToConcat) {
+                for (let ch = 0; ch < numChannels; ch++) {
+                  const destData = concatBuffer.getChannelData(ch);
+                  const srcData = chunk.buffer.getChannelData(ch);
+                  destData.set(srcData, writeOffset);
+                }
+                writeOffset += chunk.buffer.length;
+              }
+            }
+            
+            // Create and schedule the source
             const source = this.audioContext.createBufferSource();
-            source.buffer = audio.buffer;
+            source.buffer = concatBuffer;
             source.playbackRate.value = effectiveSpeed;
             source.connect(this.audioGain);
             
-            // Schedule at the calculated time (scheduleTime already computed above)
+            // Use sequential schedule time for gapless playback
+            const scheduleTime = Math.max(batchStartTime, currentAudioTime);
             source.start(scheduleTime);
+            _batchesScheduled++;
             
-            // Track scheduled source for cleanup on seek AND for drift calculation
-            const endTime = scheduleTime + audio.buffer.duration / effectiveSpeed;
+            // Calculate end time precisely for sequential chaining
+            const realDuration = concatBuffer.duration / effectiveSpeed;
+            const endTime = scheduleTime + realDuration;
+            
+            // Update sequential tracking - next batch starts exactly where this one ends
+            this.audioNextScheduleTime = endTime;
+            this.audioScheduledUntil = endTime;
+            
+            // Track scheduled source for cleanup on seek
             this.scheduledAudioSources.push({ 
               source, 
               startTime: scheduleTime,
               endTime,
-              videoTime: audio.videoTime !== undefined ? audio.videoTime : null
+              videoTime: batchVideoTimeStart
             });
             
-            // Set position reference for drift detection (first scheduled chunk)
-            if (!this.audioPositionRef && audio.videoTime !== undefined) {
+            // Set position reference (used as "first batch" flag for video-time alignment)
+            // Since drift detection now uses scheduledAudioSources directly,
+            // this ref is only needed to prevent re-alignment on every scheduling call
+            if (batchVideoTimeStart !== null && !this.audioPositionRef) {
               this.audioPositionRef = {
                 playTime: scheduleTime,
-                videoTime: audio.videoTime
+                videoTime: batchVideoTimeStart
               };
             }
             
@@ -25100,18 +25242,77 @@
               );
             }
             
-            // Update scheduled position
-            this.audioScheduledUntil = endTime;
-            
             // Track video time of scheduled audio for drift detection
-            if (audio.videoTime !== undefined) {
-              this.lastScheduledVideoTime = audio.videoTime + audio.buffer.duration;
+            if (batchVideoTimeEnd !== null) {
+              this.lastScheduledVideoTime = batchVideoTimeEnd;
             }
             
             // Track scheduling lead (how far ahead we've scheduled)
             this.audioSchedulingLead = this.audioScheduledUntil - currentAudioTime;
+            
+            // COMPREHENSIVE DIAGNOSTICS: Log every second
+            if (!this._lastAudioDiagLog || now - this._lastAudioDiagLog > 1000) {
+              this._lastAudioDiagLog = now;
+              this._audioBatchesScheduled = (this._audioBatchesScheduled || 0) + 1;
+              
+              // Find what chunk is currently PLAYING
+              let playingChunkInfo = 'none';
+              let playingDrift = null;
+              for (const s of this.scheduledAudioSources) {
+                if (s.startTime <= currentAudioTime && currentAudioTime < s.endTime && s.videoTime !== null) {
+                  const elapsed = currentAudioTime - s.startTime;
+                  const audioVideoPos = s.videoTime + elapsed * effectiveSpeed;
+                  playingDrift = audioVideoPos - currentVideoTime;
+                  playingChunkInfo = 'vt=' + s.videoTime.toFixed(2) + ' audioPos=' + audioVideoPos.toFixed(2);
+                }
+              }
+              
+              console.log('INSV AUDIO DIAG: videoTime=' + currentVideoTime.toFixed(2) + 
+                         ', batch.videoTime=' + (batchVideoTimeStart || 0).toFixed(2) +
+                         ', schedAt=' + scheduleTime.toFixed(2) +
+                         ', audioCtx=' + currentAudioTime.toFixed(2) +
+                         ', lead=' + (this.audioSchedulingLead * 1000).toFixed(0) + 'ms' +
+                         ', buf=' + this.audioBuffer.length +
+                         ', sources=' + this.scheduledAudioSources.length +
+                         ', playing=[' + playingChunkInfo + ']' +
+                         ', playDrift=' + (playingDrift !== null ? (playingDrift * 1000).toFixed(0) + 'ms' : 'N/A') +
+                         ', bufIdx=' + this.audioBufferIndex +
+                         ', speed=' + effectiveSpeed);
+            }
+            
+            // Debug: log first concatenated schedule
+            if (!this._loggedConcatSchedule) {
+              console.log('INSV audio concat: ' + chunksToConcat.length + ' chunks -> ' + 
+                         (concatBuffer.duration * 1000).toFixed(0) + 'ms buffer, scheduled at ' +
+                         scheduleTime.toFixed(3) + 's, lead=' + (this.audioSchedulingLead * 1000).toFixed(0) + 'ms' +
+                         ', chunk.videoTime=' + (batchVideoTimeStart || 0).toFixed(3) + 's');
+              this._loggedConcatSchedule = true;
+            }
           } catch (e) {
             console.error('Audio schedule error:', e);
+          }
+        }
+        
+        // Log if chunks were discarded (indicates potential sync issue)
+        if (_staleDiscarded > 0) {
+          console.log('INSV AUDIO: discarded ' + _staleDiscarded + ' stale chunks (videoTime < ' + 
+                     (currentVideoTime - 0.15).toFixed(2) + 's), remaining buf=' + this.audioBuffer.length);
+        }
+        
+        // CRITICAL: Warn if scheduling produced nothing and lead is low
+        // This is the "audio about to go silent" condition
+        const currentLead = this.audioScheduledUntil - currentAudioTime;
+        if (_batchesScheduled === 0 && currentLead < 0.3 && this.playing) {
+          if (!this._lastStarvationLog || now - this._lastStarvationLog > 500) {
+            this._lastStarvationLog = now;
+            console.warn('INSV AUDIO STARVATION: 0 batches scheduled, lead=' + (currentLead * 1000).toFixed(0) + 
+                        'ms, buf=' + this.audioBuffer.length + 
+                        ', staleDiscarded=' + _staleDiscarded +
+                        ', nextScheduleTime=' + (this.audioNextScheduleTime - currentAudioTime).toFixed(3) + 's ahead' +
+                        ', videoTime=' + currentVideoTime.toFixed(2) +
+                        ', bufIdx=' + this.audioBufferIndex +
+                        ', ref=' + (this.audioPositionRef ? 
+                          'vt=' + this.audioPositionRef.videoTime.toFixed(2) + '@' + this.audioPositionRef.playTime.toFixed(2) : 'null'));
           }
         }
         
@@ -25136,85 +25337,106 @@
         if (this.audioContextOffset === 0) {
           this.audioContextOffset = currentAudioTime - videoStartTime;
           this.audioScheduledUntil = currentAudioTime;
+          this.audioNextScheduleTime = currentAudioTime;
           console.log('INSV audio pre-sync: offset=' + this.audioContextOffset.toFixed(2) + 
                       's, videoStart=' + videoStartTime.toFixed(2) + 's');
         }
         
         const effectiveSpeed = typeof playbackSpeed !== 'undefined' ? playbackSpeed : 1;
+        const sampleRate = this.audioTrack ? this.audioTrack.audio.sample_rate : 48000;
+        const numChannels = this.audioTrack ? this.audioTrack.audio.channel_count : 1;
         
-        // Schedule audio chunks up to targetLead ahead
+        // Collect all chunks within range and concatenate into batches
         let scheduledCount = 0;
+        
         while (this.audioBuffer.length > 0) {
-          const audio = this.audioBuffer[0];
-          
-          // Skip chunks too far behind video start
-          if (audio.videoTime !== undefined) {
-            const chunkVideoTime = audio.videoTime;
-            if (chunkVideoTime < videoStartTime - 0.3) {
+          // Skip stale chunks
+          const peek = this.audioBuffer[0];
+          if (peek.videoTime !== undefined) {
+            if (peek.videoTime < videoStartTime - 0.15) {
               this.audioBuffer.shift();
               continue;
             }
-            // Skip chunks too far ahead
-            if (chunkVideoTime > videoStartTime + targetLead + 0.5) {
+            if (peek.videoTime > videoStartTime + targetLead + 0.5) {
               break;
             }
           }
           
-          // Calculate schedule time based on chunk's video time, adjusted for speed
-          let scheduleTime;
-          if (audio.videoTime !== undefined) {
-            // At speed S, video time advances S times faster than real time
-            const videoTimeDelta = audio.videoTime - videoStartTime;
-            const realTimeDelta = videoTimeDelta / effectiveSpeed;
-            scheduleTime = currentAudioTime + realTimeDelta;
-          } else {
-            scheduleTime = this.audioScheduledUntil;
+          // Collect chunks for this batch
+          const chunksToConcat = [];
+          let totalFrames = 0;
+          let batchVideoTimeStart = null;
+          
+          while (this.audioBuffer.length > 0) {
+            const chunk = this.audioBuffer[0];
+            if (chunk.videoTime !== undefined) {
+              if (chunk.videoTime < videoStartTime - 0.15) {
+                this.audioBuffer.shift();
+                continue;
+              }
+              if (chunk.videoTime > videoStartTime + targetLead + 0.5) {
+                break;
+              }
+            }
+            
+            this.audioBuffer.shift();
+            chunksToConcat.push(chunk);
+            totalFrames += chunk.buffer.length;
+            if (batchVideoTimeStart === null && chunk.videoTime !== undefined) {
+              batchVideoTimeStart = chunk.videoTime;
+            }
+            
+            // Target ~300ms batches
+            if (totalFrames / sampleRate >= 0.3) break;
           }
           
-          // Don't schedule in the past
-          scheduleTime = Math.max(scheduleTime, currentAudioTime);
-          
-          // Don't schedule too far ahead
-          if (scheduleTime > currentAudioTime + targetLead + 0.2) {
-            break;
-          }
-          
-          this.audioBuffer.shift();
+          if (chunksToConcat.length === 0) break;
           
           try {
+            // Concatenate chunks
+            let concatBuffer;
+            if (chunksToConcat.length === 1) {
+              concatBuffer = chunksToConcat[0].buffer;
+            } else {
+              concatBuffer = this.audioContext.createBuffer(numChannels, totalFrames, sampleRate);
+              let writeOffset = 0;
+              for (const chunk of chunksToConcat) {
+                for (let ch = 0; ch < numChannels; ch++) {
+                  concatBuffer.getChannelData(ch).set(chunk.buffer.getChannelData(ch), writeOffset);
+                }
+                writeOffset += chunk.buffer.length;
+              }
+            }
+            
             const source = this.audioContext.createBufferSource();
-            source.buffer = audio.buffer;
+            source.buffer = concatBuffer;
             source.playbackRate.value = effectiveSpeed;
             source.connect(this.audioGain);
             
-            // scheduleTime already computed above
+            // Use sequential scheduling for gapless playback
+            const scheduleTime = Math.max(this.audioNextScheduleTime, currentAudioTime);
+            
+            if (scheduleTime > currentAudioTime + targetLead + 0.2) break;
+            
             source.start(scheduleTime);
             
-            const endTime = scheduleTime + audio.buffer.duration / effectiveSpeed;
+            const realDuration = concatBuffer.duration / effectiveSpeed;
+            const endTime = scheduleTime + realDuration;
             this.audioScheduledUntil = endTime;
+            this.audioNextScheduleTime = endTime;
             
-            // Track scheduled source for cleanup on seek AND for drift calculation
             if (!this.scheduledAudioSources) this.scheduledAudioSources = [];
             this.scheduledAudioSources.push({ 
-              source, 
-              startTime: scheduleTime,
-              endTime,
-              videoTime: audio.videoTime !== undefined ? audio.videoTime : null
+              source, startTime: scheduleTime, endTime,
+              videoTime: batchVideoTimeStart
             });
             
-            // Set position reference for drift detection (first scheduled chunk)
-            if (!this.audioPositionRef && audio.videoTime !== undefined) {
-              this.audioPositionRef = {
-                playTime: scheduleTime,
-                videoTime: audio.videoTime
-              };
+            // Set position reference (first batch flag for alignment)
+            if (batchVideoTimeStart !== null && !this.audioPositionRef) {
+              this.audioPositionRef = { playTime: scheduleTime, videoTime: batchVideoTimeStart };
             }
             
-            if (audio.videoTime !== undefined) {
-              this.lastScheduledVideoTime = audio.videoTime + audio.buffer.duration;
-            }
-            
-            scheduledCount++;
+            scheduledCount += chunksToConcat.length;
           } catch (e) {
             console.error('Audio pre-schedule error:', e);
           }
@@ -25225,7 +25447,7 @@
         this.audioSchedulingLead = lead;
         
         if (scheduledCount > 0) {
-          console.log('INSV audio pre-scheduled:', scheduledCount, 'chunks, lead:', (lead * 1000).toFixed(0) + 'ms');
+          console.log('INSV audio pre-scheduled:', scheduledCount, 'chunks (concatenated), lead:', (lead * 1000).toFixed(0) + 'ms');
         }
         
         return lead >= targetLead;
@@ -25513,7 +25735,8 @@
           if (inSync) {
             console.log('INSV simple resume from frame', this.currentFrame, 
                        'buffer:', this.decodedFrameBuffer.length, 
-                       'audio:', this.audioBuffer.length);
+                       'audio:', this.audioBuffer.length,
+                       'hasPausedState:', !!this.pausedWallClockState);
             
             this.playing = true;
             this.requestWakeLock();
@@ -25521,12 +25744,49 @@
             // Resume audio context if suspended
             if (this.audioContext?.state === 'suspended') {
               await this.audioContext.resume();
-              console.log('Audio context resumed');
+              console.log('Audio context resumed, currentTime:', this.audioContext.currentTime);
             }
             
-            // Wall clock will re-sync naturally on first render frame
-            // Audio will continue from existing buffer position
-            this.wallClockStart = null;
+            // SMOOTH RESUME: Restore wall clock state with time adjustment
+            const now = performance.now();
+            const effectiveSpeed = typeof playbackSpeed !== 'undefined' ? playbackSpeed : 1;
+            
+            if (this.pausedWallClockState && this.pausedWallClockState.wallClockStart) {
+              // Calculate how much video time should have elapsed
+              const videoTimeSincePause = this.currentTime - this.pausedWallClockState.currentTime;
+              
+              // Only restore if pause was recent (less than 1 second of video time drift)
+              if (Math.abs(videoTimeSincePause) < 1.0) {
+                // Adjust wall clock start to account for pause duration
+                // Calculate new wall clock start that makes currentTime correct
+                this.wallClockStart = now - ((this.currentTime - this.pausedWallClockState.videoTimeAtStart) / effectiveSpeed * 1000);
+                this.videoTimeAtStart = this.pausedWallClockState.videoTimeAtStart;
+                
+                // Recalculate audio scheduling based on resumed audioContext time
+                // The audioContext.currentTime has advanced during suspend/resume cycle
+                // So we need to reset audioScheduledUntil to current audioContext time
+                // and let scheduleAudio re-sync properly
+                const currentAudioCtxTime = this.audioContext ? this.audioContext.currentTime : 0;
+                this.audioScheduledUntil = currentAudioCtxTime;
+                this.audioContextOffset = currentAudioCtxTime - this.currentTime;
+                this.audioPositionRef = null;  // Let scheduleAudio create new reference
+                
+                console.log('INSV audio state adjusted for resume, audioCtxTime:', currentAudioCtxTime.toFixed(2),
+                           'videoTime:', this.currentTime.toFixed(2));
+              } else {
+                // Pause was too long, reset wall clock (audio will re-init)
+                this.wallClockStart = null;
+                this.audioScheduledUntil = 0;
+          this.audioNextScheduleTime = 0;  // Force full audio re-init
+                console.log('INSV pause too long, resetting wall clock');
+              }
+              this.pausedWallClockState = null;
+            } else {
+              // No pause state, reset wall clock
+              this.wallClockStart = null;
+              this.audioScheduledUntil = 0;
+          this.audioNextScheduleTime = 0;  // Force full audio re-init
+            }
             
             // Ensure buffer loops are running
             if (!this.bufferLoopRunning) {
@@ -25613,6 +25873,7 @@
           
           // Reset audio timing for proper sync
           this.audioScheduledUntil = 0;
+          this.audioNextScheduleTime = 0;
           this.audioContextStartTime = 0;
           this.audioVideoStartTime = 0;
           this.audioContextOffset = 0;
@@ -25665,6 +25926,7 @@
         
         // Reset audio timing for proper sync
         this.audioScheduledUntil = 0;
+          this.audioNextScheduleTime = 0;
         this.audioContextStartTime = 0;
         this.audioVideoStartTime = 0;
         this.audioContextOffset = 0;
@@ -25776,7 +26038,7 @@
         }
       }
       
-      pause() {
+      async pause() {
         console.log('INSV pause()', {
           bufferLength: this.decodedFrameBuffer.length,
           pendingT0: this.pendingFrames[0].size,
@@ -25788,7 +26050,27 @@
         this.renderLoopRunning = false;
         this.playbackStartTime = null;
         this.renderStartTime = null;  // Reset strict timing
-        this.wallClockStart = null;   // Reset wall-clock timing for resume
+        
+        // PRESERVE wall clock and audio state for smooth resume
+        // Store current state instead of clearing it
+        this.pausedWallClockState = {
+          wallClockStart: this.wallClockStart,
+          videoTimeAtStart: this.videoTimeAtStart,
+          currentTime: this.currentTime,
+          audioScheduledUntil: this.audioScheduledUntil,
+          audioContextOffset: this.audioContextOffset,
+          audioPositionRef: this.audioPositionRef,
+          audioContextTime: this.audioContext ? this.audioContext.currentTime : 0
+        };
+        this.wallClockStart = null;   // Mark as paused (will restore on resume)
+        
+        // Stop all scheduled audio sources - they become invalid after suspend
+        if (this.scheduledAudioSources && this.scheduledAudioSources.length > 0) {
+          for (const scheduled of this.scheduledAudioSources) {
+            try { if (scheduled.source) scheduled.source.stop(); } catch (e) {}
+          }
+          this.scheduledAudioSources = [];
+        }
         
         // DON'T clear the buffer - keep decoded frames for instant resume
         // DON'T stop buffering - continue pre-buffering during pause
@@ -25801,9 +26083,14 @@
         // Notify status change to paused
         if (this.onStatusChange) this.onStatusChange('paused');
         
-        // Suspend audio (but keep video buffer)
+        // Suspend audio (but keep video buffer) - AWAIT to ensure complete
         if (this.audioContext && this.audioContext.state === 'running') {
-          this.audioContext.suspend();
+          try {
+            await this.audioContext.suspend();
+            console.log('INSV audio context suspended');
+          } catch (e) {
+            console.warn('INSV audio context suspend error:', e);
+          }
         }
         
         // Stop audio buffering (we'll restart on play)
@@ -25871,14 +26158,39 @@
       }
       
       async audioBufferLoop() {
+        // Use shorter interval (50ms) for smoother audio
+        // Audio at 48kHz with ~1024 sample chunks = ~21ms per chunk
+        // At 50ms interval we can keep up with 2-3 chunks per cycle
+        const AUDIO_LOOP_INTERVAL = 50;
+        
         while (this.audioBufferingActive && this.playing) {
           try {
-            await this.decodeAudioForTime(this.currentTime, 2);
+            const bufBefore = this.audioBuffer.length;
+            const idxBefore = this.audioBufferIndex;
+            // Decode more audio ahead to build comfortable buffer
+            await this.decodeAudioForTime(this.currentTime, 3);
+            const bufAfter = this.audioBuffer.length;
+            const idxAfter = this.audioBufferIndex;
+            
+            // Log decode results periodically
+            if (!this._lastDecodeLog || performance.now() - this._lastDecodeLog > 2000) {
+              this._lastDecodeLog = performance.now();
+              const firstVT = this.audioBuffer.length > 0 && this.audioBuffer[0].videoTime !== undefined ? 
+                              this.audioBuffer[0].videoTime.toFixed(2) : 'N/A';
+              const lastVT = this.audioBuffer.length > 0 && this.audioBuffer[this.audioBuffer.length-1].videoTime !== undefined ? 
+                             this.audioBuffer[this.audioBuffer.length-1].videoTime.toFixed(2) : 'N/A';
+              console.log('INSV AUDIO decode: currentTime=' + this.currentTime.toFixed(2) + 
+                         ', buf ' + bufBefore + '->' + bufAfter +
+                         ', idx ' + idxBefore + '->' + idxAfter + '/' + this.audioSampleMeta.length +
+                         ', buf range=[' + firstVT + ',' + lastVT + ']' +
+                         ', lead=' + (this.audioSchedulingLead * 1000).toFixed(0) + 'ms');
+            }
+            
             this.scheduleAudio();
           } catch (e) {
             console.error('Audio buffer loop error:', e);
           }
-          await new Promise(r => setTimeout(r, 100));
+          await new Promise(r => setTimeout(r, AUDIO_LOOP_INTERVAL));
         }
         this.audioBufferLoopRunning = false;
       }
@@ -26171,6 +26483,7 @@
           // Clear stale audio buffer
           this.audioBuffer = [];
           this.audioScheduledUntil = 0;
+          this.audioNextScheduleTime = 0;
           this.audioContextOffset = 0;
           this.audioPositionRef = null;  // Clear drift detection reference
           this.lastAudioSyncCheck = 0;   // Allow immediate resync check
@@ -26602,6 +26915,7 @@
           this.audioBuffer = [];
           this.audioBufferIndex = 0;
           this.audioScheduledUntil = 0;
+          this.audioNextScheduleTime = 0;
           this.audioContextOffset = 0;
           this.lastAudioSyncCheck = 0;
           this.lastScheduledVideoTime = 0;
@@ -26820,6 +27134,7 @@
           // Reset audio state - use KEYFRAME time for sync
           this.audioBuffer = [];
           this.audioScheduledUntil = 0;
+          this.audioNextScheduleTime = 0;
           this.audioContextStartTime = 0;
           this.audioVideoStartTime = 0;
           this.audioSyncVideoTime = 0;
@@ -27636,6 +27951,7 @@
                           ', videoTime=' + this.currentTime.toFixed(2) +
                           ', drift=' + (audioDrift * 1000).toFixed(0) + 'ms' +
                           ', speed=' + effectiveSpeed +
+                          ', trackOffset=' + ((this.audioTrackOffset || 0) * 1000).toFixed(0) + 'ms' +
                           ', chunks=' + this.scheduledAudioSources.length);
             }
           }
@@ -28108,7 +28424,7 @@
       console.log('Container dimensions:', width, 'x', height);
       
       threeScene = new THREE.Scene();
-      threeCamera = new THREE.PerspectiveCamera(75, width / height, 1, 1100);
+      threeCamera = new THREE.PerspectiveCamera(100, width / height, 1, 1100);
       threeCamera.target = new THREE.Vector3(0, 0, 0);
       
       // Check if we have an INSV player with separate lens canvases
@@ -28377,7 +28693,7 @@
           updateViewModeTag360();  // Update display to show current FOV
         } else {
           // Standard 360 spherical view
-          threeCamera.fov = THREE.MathUtils.clamp(threeCamera.fov + e.deltaY * 0.05, 30, 120);
+          threeCamera.fov = THREE.MathUtils.clamp(threeCamera.fov + e.deltaY * 0.05, 30, 100);
           threeCamera.updateProjectionMatrix();
           updateViewModeTag360();  // Update display to show current FOV
         }
@@ -28421,7 +28737,7 @@
       
       // Update viewport for INSV player (viewport-only rendering)
       if (current360Player && current360Player.updateViewport) {
-        current360Player.updateViewport(lon360, threeCamera ? threeCamera.fov : 75);
+        current360Player.updateViewport(lon360, threeCamera ? threeCamera.fov : 100);
       }
       
       // Compute target render mode based on CURRENT visibleLens (not stale currentShaderMode)
@@ -28662,6 +28978,12 @@
     }
     
     function toggle360ViewMode() {
+      // MEGA view is disabled for INSV dual-fisheye videos
+      if (current360Format === 'insv') {
+        console.log('MEGA view not available for INSV dual-fisheye videos');
+        return;
+      }
+      
       if (viewMode360 === '360') {
         viewMode360 = 'megaview';
         megaHFov = 200;  // Default MEGA FOV
@@ -28678,7 +29000,7 @@
       } else {
         viewMode360 = '360';
         // Preserve view direction for all formats
-        threeCamera.fov = 75;
+        threeCamera.fov = 100;
         threeCamera.updateProjectionMatrix();
       }
       updateViewModeTag360();
@@ -28730,7 +29052,7 @@
       if (tag) {
         let text;
         if (viewMode360 === '360') {
-          const linearFov = threeCamera ? Math.round(threeCamera.fov) : 75;
+          const linearFov = threeCamera ? Math.round(threeCamera.fov) : 100;
           text = `Linear ${linearFov}°`;
         } else {
           text = `MEGA ${Math.round(megaHFov)}°`;
@@ -28742,6 +29064,17 @@
           text += ` T1:${t1} T2:${t2}`;
         }
         tag.textContent = text;
+        
+        // Hide toggle click for INSV (MEGA not available)
+        if (current360Format === 'insv') {
+          tag.style.cursor = 'default';
+          tag.style.opacity = '0.7';
+          tag.title = 'MEGA view not available for INSV';
+        } else {
+          tag.style.cursor = 'pointer';
+          tag.style.opacity = '1';
+          tag.title = 'Click to toggle Linear/MEGA view';
+        }
       }
     }
     
@@ -28981,12 +29314,9 @@
           const fileType = isInsta360MP4 ? 'Insta360 MP4' : 'LRV';
           console.log(fileType + ' loaded, duration:', current360Player.duration, 'video size:', videoWidth, 'x', videoHeight, 'format:', current360Format);
           
-          // Set MEGA view as default for equirectangular (stitched) MP4
-          if (current360Format === 'equirectangular') {
-            viewMode360 = 'megaview';
-            megaHFov = 200;
-            console.log('Equirectangular MP4 - defaulting to MEGA view');
-          }
+          // All formats default to Linear view
+          // (MEGA view is still available for LRV/equirectangular via toggle)
+          viewMode360 = '360';
           
           // Hide fps/quality controls for LRV (only works for INSV)
           const fpsContainer = document.getElementById('video-fps-selector-container');
