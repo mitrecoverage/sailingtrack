@@ -9442,7 +9442,7 @@
         const savedPlaybackTime = playbackTime;
         const savedLon360 = lon360;
         const savedLat360 = lat360;
-        const savedFov360 = threeCamera ? threeCamera.fov : 100;
+        const savedFov360 = threeCamera ? threeCamera.fov : 110;
         
         // Create render canvas
         const renderCanvas = document.createElement('canvas');
@@ -9769,7 +9769,8 @@
         // Restore animation loop if it was active
         if (was360Active && current360Player) {
           is360VideoActive = true;
-          animate360();
+          animate360LoopId++;
+          animate360(animate360LoopId);
         }
         
         // Restore playback if it was playing
@@ -9801,7 +9802,8 @@
         // Restore animation loop on error too
         if (was360Active && current360Player) {
           is360VideoActive = true;
-          animate360();
+          animate360LoopId++;
+          animate360(animate360LoopId);
         }
         
         // Restore state on error too
@@ -20085,7 +20087,7 @@
             viewMode360: viewMode360,
             tiltCorrection360: tiltCorrection360,
             tilt2Correction360: tilt2Correction360,
-            linearFov: threeCamera ? threeCamera.fov : 100
+            linearFov: threeCamera ? threeCamera.fov : 110
           };
           hasUserViewState360 = true;  // Mark that we have real user state to restore
           console.log('Saved 360 view state:', savedViewState360);
@@ -20433,6 +20435,19 @@
           } else if (isPlaying && vidTimeSec < 0) {
             // Video not started yet but we're in playing mode - it will start when timeline reaches it
             console.log('[VideoLoad] gen=' + thisLoadGeneration + ' loaded but not yet in range, waiting...');
+          } else if (!isPlaying && videoIsActive && vidTimeSec > 1 && current360Player) {
+            // PAUSED: Seek to current timeline position so user sees the correct frame
+            // Without this, the display stays at frame 0 after loading
+            console.log('[VideoLoad] gen=' + thisLoadGeneration + ' paused, seeking to', vidTimeSec.toFixed(1) + 's');
+            current360Player.seek(vidTimeSec).then(() => {
+              if (thisLoadGeneration === videoLoadGeneration && currentActiveVideo === expectedVideo) {
+                if (current360Player && current360Player.forceRedrawToAllCanvases) {
+                  current360Player.forceRedrawToAllCanvases('combined');
+                }
+              }
+            }).catch(err => {
+              console.warn('[VideoLoad] gen=' + thisLoadGeneration + ' paused seek failed:', err);
+            });
           }
         }).catch(err => {
           console.error('[VideoLoad] gen=' + thisLoadGeneration + ' failed to load 360 video:', err);
@@ -23335,7 +23350,7 @@
       viewMode360: '360',
       tiltCorrection360: 0,
       tilt2Correction360: 0,
-      linearFov: 100
+      linearFov: 110
     };
     let hasUserViewState360 = false;  // Only restore after user has interacted or first video loaded
     
@@ -24018,6 +24033,13 @@
         
         // Separate lens canvases for selective texture upload
         this.frontLensCanvas = document.createElement('canvas');
+        
+        // Direct VideoFrame → WebGL texture upload (GPU-to-GPU, bypasses canvas)
+        this.pendingFrontFrame = null;   // VideoFrame waiting for GL upload
+        this.pendingBackFrame = null;    // VideoFrame waiting for GL upload  
+        this.directUploadReady = false;  // Set true once GL refs are available
+        this.directUploadActive = false; // Set true after initial texture frames AND textureScale=1.0
+        this.glRenderer = null;          // Three.js renderer reference
         this.backLensCanvas = document.createElement('canvas');
         this.frontLensCtx = this.frontLensCanvas.getContext('2d');
         this.backLensCtx = this.backLensCanvas.getContext('2d');
@@ -26119,6 +26141,9 @@
           if (framePair.frame1) framePair.frame1.close();
         }
         
+        // Close any pending direct-upload frames
+        this.closePendingFrames();
+        
         // Clean up pending frames
         for (const [ts, frame] of this.pendingFrames[0]) {
           frame.close();
@@ -26924,6 +26949,73 @@
         requestAnimationFrame(() => this.renderLoop());
       }
       
+      // Setup direct VideoFrame → WebGL texture upload references
+      // Called after Three.js textures are initialized
+      setGLReferences(renderer, frontTexture, backTexture) {
+        this.glRenderer = renderer;
+        this.directUploadReady = true;
+        console.log('INSV direct VideoFrame→GL upload ready (will activate at Ultra quality)');
+      }
+      
+      // Upload a VideoFrame directly to a WebGL texture (GPU-to-GPU transfer)
+      // Returns true if upload succeeded, false if fallback needed
+      uploadVideoFrameToTexture(videoFrame, textureObj) {
+        if (!videoFrame || !textureObj || !this.glRenderer) return false;
+        
+        try {
+          const gl = this.glRenderer.getContext();
+          
+          // Get the native WebGL texture handle from Three.js internal properties
+          const texProperties = this.glRenderer.properties.get(textureObj);
+          const nativeTexture = texProperties ? texProperties.__webglTexture : null;
+          
+          if (!nativeTexture) {
+            // Texture not yet initialized by Three.js - let canvas path handle it
+            return false;
+          }
+          
+          // Save GL state that we'll modify
+          const prevFlipY = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL);
+          const prevPremultiply = gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL);
+          
+          // Match Three.js CanvasTexture defaults: flipY=true, premultiplyAlpha=false
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, textureObj.flipY ? 1 : 0);
+          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, textureObj.premultiplyAlpha ? 1 : 0);
+          
+          // Bind and upload VideoFrame directly to the GL texture
+          // The browser handles YUV→RGB conversion and GPU-to-GPU transfer
+          gl.bindTexture(gl.TEXTURE_2D, nativeTexture);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, videoFrame);
+          
+          // Restore GL state
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, prevFlipY ? 1 : 0);
+          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, prevPremultiply ? 1 : 0);
+          
+          return true;
+        } catch (e) {
+          // Direct upload failed (browser doesn't support VideoFrame as texImage2D source)
+          if (!this._directUploadWarnLogged) {
+            console.warn('INSV direct VideoFrame→GL upload failed, falling back to canvas:', e.message);
+            this._directUploadWarnLogged = true;
+            // Permanently disable direct upload on failure
+            this.directUploadActive = false;
+          }
+          return false;
+        }
+      }
+      
+      // Close any pending VideoFrames (called on seek, stop, cleanup)
+      closePendingFrames() {
+        if (this.pendingFrontFrame) { 
+          try { this.pendingFrontFrame.close(); } catch(e) {} 
+          this.pendingFrontFrame = null; 
+        }
+        if (this.pendingBackFrame) { 
+          try { this.pendingBackFrame.close(); } catch(e) {} 
+          this.pendingBackFrame = null; 
+        }
+      }
+      
       // Helper to draw a frame pair to the combined canvas and separate lens canvases
       drawFramePair(framePair) {
         // Reset update flags
@@ -26934,10 +27026,50 @@
         this.lastDrawnFrameIndex = framePair.frameIndex;
         
         // Determine which canvases we actually need to draw to
-        // This avoids redundant CPU work - we only draw to canvases that will be uploaded
         const needFront = this.targetRenderMode === 'front' || this.targetRenderMode === 'dual';
         const needBack = this.targetRenderMode === 'back' || this.targetRenderMode === 'dual';
         const needCombined = this.targetRenderMode === 'combined' || !this.targetRenderMode;
+        
+        // =====================================================================
+        // FAST PATH: Direct VideoFrame → WebGL texture (GPU-to-GPU transfer)
+        // Bypasses ctx.drawImage (CPU readback) and Three.js texImage2D (re-upload)
+        // Only available for front/back/dual modes with separate textures
+        // Combined mode requires both lenses on one canvas — must use canvas path
+        // =====================================================================
+        if (this.directUploadActive && !needCombined) {
+          // Close any pending frames from previous cycle that weren't consumed
+          this.closePendingFrames();
+          
+          if (framePair.mode === 'single') {
+            if (framePair.activeLens === 0 && needBack && framePair.frame0) {
+              this.pendingBackFrame = framePair.frame0;
+              framePair.frame0 = null;  // Transfer ownership — caller won't close
+              this.backLensUpdated = true;
+            } else if (framePair.activeLens === 1 && needFront && framePair.frame1) {
+              this.pendingFrontFrame = framePair.frame1;
+              framePair.frame1 = null;
+              this.frontLensUpdated = true;
+            }
+          } else {
+            // Dual-lens mode
+            if (needFront && framePair.frame1 && this.visibleLens !== 1) {
+              this.pendingFrontFrame = framePair.frame1;
+              framePair.frame1 = null;
+              this.frontLensUpdated = true;
+            }
+            if (needBack && framePair.frame0 && this.visibleLens !== 0) {
+              this.pendingBackFrame = framePair.frame0;
+              framePair.frame0 = null;
+              this.backLensUpdated = true;
+            }
+          }
+          return;
+        }
+        
+        // =====================================================================
+        // CANVAS PATH: Fallback for combined mode or when GL not yet ready
+        // VideoFrame → ctx.drawImage → canvas → Three.js texImage2D → GPU
+        // =====================================================================
         
         // Handle single-lens mode
         if (framePair.mode === 'single') {
@@ -26949,7 +27081,6 @@
                 0, 0, this.scaledWidth, this.scaledHeight);
               this.backLensUpdated = true;
             }
-            // Combined canvas for backward compatibility (only if needed)
             if (needCombined) {
               this.combinedCtx.drawImage(framePair.frame0,
                 0, 0, this.width, this.height,
@@ -26964,7 +27095,6 @@
                 0, 0, this.scaledWidth, this.scaledHeight);
               this.frontLensUpdated = true;
             }
-            // Combined canvas for backward compatibility (only if needed)
             if (needCombined) {
               this.combinedCtx.drawImage(framePair.frame1,
                 0, 0, this.width, this.height,
@@ -26975,8 +27105,7 @@
           return;
         }
         
-        // Dual-lens mode: visibleLens: 0=front, 1=back, 2=both
-        // frame1 = front lens (left half), frame0 = back lens (right half)
+        // Dual-lens mode: frame1 = front lens, frame0 = back lens
         if (this.visibleLens !== 1 && framePair.frame1) {
           if (needFront) {
             this.frontLensCtx.drawImage(framePair.frame1,
@@ -26984,7 +27113,6 @@
               0, 0, this.scaledWidth, this.scaledHeight);
             this.frontLensUpdated = true;
           }
-          // Combined canvas (only if needed)
           if (needCombined) {
             this.combinedCtx.drawImage(framePair.frame1, 
               0, 0, this.width, this.height,
@@ -26999,7 +27127,6 @@
               0, 0, this.scaledWidth, this.scaledHeight);
             this.backLensUpdated = true;
           }
-          // Combined canvas (only if needed)
           if (needCombined) {
             this.combinedCtx.drawImage(framePair.frame0,
               0, 0, this.width, this.height,
@@ -27013,14 +27140,28 @@
       // Used when switching render modes to ensure target canvas has current data
       // Returns true only if the required frames for targetMode are available
       forceRedrawToAllCanvases(targetMode = 'dual') {
-        if (this.decodedFrameBuffer.length === 0) {
-          console.log('INSV forceRedraw: buffer empty');
-          return false;
+        // If direct upload is active, pending frames ARE the current displayed frames
+        // Use them to draw to canvas (needed for mode switch texture uploads)
+        const pendingFront = this.pendingFrontFrame;
+        const pendingBack = this.pendingBackFrame;
+        
+        // Try buffer first, fall back to pending frames
+        let frontFrame = null, backFrame = null;
+        
+        if (this.decodedFrameBuffer.length > 0) {
+          const framePair = this.decodedFrameBuffer[0];
+          if (framePair) {
+            frontFrame = framePair.frame1;
+            backFrame = framePair.frame0;
+          }
         }
         
-        const framePair = this.decodedFrameBuffer[0];
-        if (!framePair) {
-          console.log('INSV forceRedraw: no framePair');
+        // Use pending frames as fallback (more recent than buffer)
+        if (!frontFrame && pendingFront) frontFrame = pendingFront;
+        if (!backFrame && pendingBack) backFrame = pendingBack;
+        
+        if (!frontFrame && !backFrame) {
+          console.log('INSV forceRedraw: no frames available');
           return false;
         }
         
@@ -27029,34 +27170,32 @@
         const needsBack = targetMode === 'back' || targetMode === 'dual' || targetMode === 'combined';
         
         // If we need a frame that's missing, return false - don't upload garbage
-        if (needsFront && !framePair.frame1) {
-          console.log('INSV forceRedraw: missing front frame for mode', targetMode, 
-            'framePair:', { frameIndex: framePair.frameIndex, mode: framePair.mode });
+        if (needsFront && !frontFrame) {
+          console.log('INSV forceRedraw: missing front frame for mode', targetMode);
           return false;
         }
-        if (needsBack && !framePair.frame0) {
-          console.log('INSV forceRedraw: missing back frame for mode', targetMode,
-            'framePair:', { frameIndex: framePair.frameIndex, mode: framePair.mode });
+        if (needsBack && !backFrame) {
+          console.log('INSV forceRedraw: missing back frame for mode', targetMode);
           return false;
         }
         
         // Draw front lens to frontLensCanvas if available
-        if (framePair.frame1) {
-          this.frontLensCtx.drawImage(framePair.frame1,
+        if (frontFrame) {
+          this.frontLensCtx.drawImage(frontFrame,
             0, 0, this.width, this.height,
             0, 0, this.scaledWidth, this.scaledHeight);
-          this.combinedCtx.drawImage(framePair.frame1,
+          this.combinedCtx.drawImage(frontFrame,
             0, 0, this.width, this.height,
             0, 0, this.scaledWidth, this.scaledHeight);
           this.frontLensUpdated = true;
         }
         
         // Draw back lens to backLensCanvas if available
-        if (framePair.frame0) {
-          this.backLensCtx.drawImage(framePair.frame0,
+        if (backFrame) {
+          this.backLensCtx.drawImage(backFrame,
             0, 0, this.width, this.height,
             0, 0, this.scaledWidth, this.scaledHeight);
-          this.combinedCtx.drawImage(framePair.frame0,
+          this.combinedCtx.drawImage(backFrame,
             0, 0, this.width, this.height,
             this.scaledWidth, 0, this.scaledWidth, this.scaledHeight);
           this.backLensUpdated = true;
@@ -27115,6 +27254,9 @@
             if (framePair.frame1) framePair.frame1.close();
           }
           this.decodedFrameBuffer = [];
+          
+          // Close any pending direct-upload frames
+          this.closePendingFrames();
         
           // Reset timing references
           this.renderStartTime = null;
@@ -27879,6 +28021,15 @@
         this.scaledWidth = Math.round(this.width * scale);
         this.scaledHeight = Math.round(this.height * scale);
         
+        // Direct upload only works at full resolution (textureScale=1.0)
+        // At lower quality levels, canvas downscale is needed
+        if (scale < 1.0 && this.directUploadActive) {
+          this.directUploadActive = false;
+          this.closePendingFrames();
+          console.log('INSV direct upload deactivated (textureScale=' + scale + ', needs canvas downscale)');
+        }
+        // When returning to Ultra, re-activation happens automatically in animate360
+        
         // Resize combined canvas
         this.combinedCanvas.width = this.scaledWidth * 2;
         this.combinedCanvas.height = this.scaledHeight;
@@ -28642,6 +28793,9 @@
         // Mark video player for recovery
         if (current360Player) {
           current360Player.decodersCorrupted = true;
+          // Direct upload needs re-initialization after context restore
+          current360Player.directUploadActive = false;
+          current360Player.closePendingFrames();
         }
       });
       
@@ -28653,6 +28807,10 @@
           threeTexture.minFilter = THREE.LinearFilter;
           threeTexture.magFilter = THREE.LinearFilter;
           if (combinedMaterial) combinedMaterial.map = threeTexture;
+          // Re-wire direct upload references (new texture objects)
+          if (threeFrontTexture && threeBackTexture && current360Player.setGLReferences) {
+            current360Player.setGLReferences(threeRenderer, threeFrontTexture, threeBackTexture);
+          }
         }
       });
       
@@ -28693,7 +28851,7 @@
           updateViewModeTag360();  // Update display to show current FOV
         } else {
           // Standard 360 spherical view
-          threeCamera.fov = THREE.MathUtils.clamp(threeCamera.fov + e.deltaY * 0.05, 30, 100);
+          threeCamera.fov = THREE.MathUtils.clamp(threeCamera.fov + e.deltaY * 0.05, 30, 110);
           threeCamera.updateProjectionMatrix();
           updateViewModeTag360();  // Update display to show current FOV
         }
@@ -28701,12 +28859,19 @@
       
       threeRenderer.domElement.ondblclick = togglePlayback;
       
+      // Wire up direct VideoFrame → WebGL upload for INSV players
+      // Must happen after renderer AND separate lens textures are created
+      if (current360Player && threeFrontTexture && threeBackTexture && current360Player.setGLReferences) {
+        current360Player.setGLReferences(threeRenderer, threeFrontTexture, threeBackTexture);
+      }
+      
       return threeRenderer;
     }
     
     let animate360FrameCount = 0;
     let lastAnimate360Time = 0;
     let animate360ForceTextureFrames = 0;  // Force texture updates for first N frames
+    let animate360LoopId = 0;  // Incremented each time animate360 is started, prevents duplicate loops
     
     // Dynamic render interval - matches video FPS for smooth playback
     function getAnimate360MinInterval() {
@@ -28716,13 +28881,17 @@
       return 1000 / 30; // Default 30fps when no video
     }
     
-    function animate360() {
-      if (!threeRenderer || !is360VideoActive) {
-        console.log('animate360 stopped: renderer=', !!threeRenderer, 'active=', is360VideoActive);
+    function animate360(myLoopId) {
+      if (!threeRenderer || !is360VideoActive || myLoopId !== animate360LoopId) {
+        if (myLoopId !== animate360LoopId) {
+          console.log('animate360 loop', myLoopId, 'superseded by', animate360LoopId, '- stopping');
+        } else {
+          console.log('animate360 stopped: renderer=', !!threeRenderer, 'active=', is360VideoActive);
+        }
         return;
       }
       
-      requestAnimationFrame(animate360);
+      requestAnimationFrame(() => animate360(myLoopId));
       
       // Throttle Three.js rendering to match video FPS
       const now = performance.now();
@@ -28737,7 +28906,7 @@
       
       // Update viewport for INSV player (viewport-only rendering)
       if (current360Player && current360Player.updateViewport) {
-        current360Player.updateViewport(lon360, threeCamera ? threeCamera.fov : 100);
+        current360Player.updateViewport(lon360, threeCamera ? threeCamera.fov : 110);
       }
       
       // Compute target render mode based on CURRENT visibleLens (not stale currentShaderMode)
@@ -28778,6 +28947,10 @@
         if (canUseCache) {
           // Skip texture updates - just render with cached state
           // Still need to render in case window resized
+          // Close any pending direct-upload frames that won't be consumed
+          if (current360Player.pendingFrontFrame || current360Player.pendingBackFrame) {
+            current360Player.closePendingFrames();
+          }
         } else {
           // OPTIMIZATION: Only upload the texture that's actually being rendered
           // CRITICAL: Use targetMode (not currentShaderMode) for texture upload decision
@@ -28843,43 +29016,124 @@
           const finalNeedsFront = current360Player.frontLensUpdated || needsFrontUpdate || forceInitialUpdate;
           const finalNeedsBack = current360Player.backLensUpdated || needsBackUpdate || forceInitialUpdate;
           
-          // Skip if no canvas was updated AND we're not switching modes AND not forcing initial
-          if (!finalNeedsFront && !finalNeedsBack && !switchingModes && !forceInitialUpdate) {
-            // No new frame drawn and no mode switch - skip texture upload entirely
-          } else if (targetMode === 'front') {
-            // Front-only mode: only front texture needed
-            if (finalNeedsFront || switchingModes || forceInitialUpdate) {
-              threeFrontTexture.needsUpdate = true;
-              perfMonitor.trackTextureUpload();
+          // =====================================================================
+          // DIRECT VideoFrame → WebGL TEXTURE UPLOAD (GPU-to-GPU transfer)
+          // Bypasses: ctx.drawImage (CPU readback) + Three.js texImage2D (re-upload)
+          // Only active after initial texture frames (Three.js needs to init GL handles)
+          // Falls back to canvas path for: combined mode, force-initial, mode switches
+          // =====================================================================
+          const canUseDirectUpload = current360Player.directUploadActive && 
+                                     !forceInitialUpdate && !switchingModes &&
+                                     targetMode !== 'combined';
+          
+          const hasPendingFront = current360Player.pendingFrontFrame !== null;
+          const hasPendingBack = current360Player.pendingBackFrame !== null;
+          
+          if (canUseDirectUpload && (hasPendingFront || hasPendingBack)) {
+            // Direct GPU upload path - skip canvas entirely
+            let uploadedFront = false, uploadedBack = false;
+            
+            if (targetMode === 'front' && hasPendingFront) {
+              uploadedFront = current360Player.uploadVideoFrameToTexture(
+                current360Player.pendingFrontFrame, threeFrontTexture);
+              if (uploadedFront) perfMonitor.trackTextureUpload();
+            } else if (targetMode === 'back' && hasPendingBack) {
+              uploadedBack = current360Player.uploadVideoFrameToTexture(
+                current360Player.pendingBackFrame, threeBackTexture);
+              if (uploadedBack) perfMonitor.trackTextureUpload();
+            } else if (targetMode === 'dual') {
+              if (hasPendingFront) {
+                uploadedFront = current360Player.uploadVideoFrameToTexture(
+                  current360Player.pendingFrontFrame, threeFrontTexture);
+                if (uploadedFront) perfMonitor.trackTextureUpload();
+              }
+              if (hasPendingBack) {
+                uploadedBack = current360Player.uploadVideoFrameToTexture(
+                  current360Player.pendingBackFrame, threeBackTexture);
+                if (uploadedBack) perfMonitor.trackTextureUpload();
+              }
             }
-          } else if (targetMode === 'back') {
-            // Back-only mode: only back texture needed
-            if (finalNeedsBack || switchingModes || forceInitialUpdate) {
-              threeBackTexture.needsUpdate = true;
-              perfMonitor.trackTextureUpload();
+            
+            // Close uploaded frames immediately (GPU has the data now)
+            if (uploadedFront && current360Player.pendingFrontFrame) {
+              current360Player.pendingFrontFrame.close();
+              current360Player.pendingFrontFrame = null;
             }
-          } else if (targetMode === 'dual') {
-            // Dual mode: need both separate textures
-            // When switching TO dual mode, force both textures to update
-            if (finalNeedsFront || switchingModes || forceInitialUpdate) {
-              threeFrontTexture.needsUpdate = true;
-              perfMonitor.trackTextureUpload();
+            if (uploadedBack && current360Player.pendingBackFrame) {
+              current360Player.pendingBackFrame.close();
+              current360Player.pendingBackFrame = null;
             }
-            if (finalNeedsBack || switchingModes || forceInitialUpdate) {
-              threeBackTexture.needsUpdate = true;
-              perfMonitor.trackTextureUpload();
+            
+            // If direct upload failed (texture not yet initialized), fall back to canvas
+            if ((hasPendingFront && !uploadedFront) || (hasPendingBack && !uploadedBack)) {
+              // Direct upload failed - fall through to canvas path below
+              // Close the pending frames and let next cycle use canvas
+              current360Player.closePendingFrames();
+              if (finalNeedsFront || finalNeedsBack) {
+                // Canvas was already drawn (fallback in drawFramePair still draws)
+                // Actually in direct mode, canvas was NOT drawn. Just skip this frame.
+              }
             }
           } else {
-            // Combined mode (default): only combined texture needed
-            if (threeTexture && (finalNeedsFront || finalNeedsBack || switchingModes || forceInitialUpdate)) {
-              threeTexture.needsUpdate = true;
-              perfMonitor.trackTextureUpload();
+            // Canvas path: standard Three.js texture upload
+            // Used for: initial frames, mode switches, combined mode, no pending frames
+            
+            // Close any orphaned pending frames (from direct upload path that we're not using)
+            if (hasPendingFront || hasPendingBack) {
+              current360Player.closePendingFrames();
+            }
+            
+            // Skip if no canvas was updated AND we're not switching modes AND not forcing initial
+            if (!finalNeedsFront && !finalNeedsBack && !switchingModes && !forceInitialUpdate) {
+              // No new frame drawn and no mode switch - skip texture upload entirely
+            } else if (targetMode === 'front') {
+              if (finalNeedsFront || switchingModes || forceInitialUpdate) {
+                threeFrontTexture.needsUpdate = true;
+                perfMonitor.trackTextureUpload();
+              }
+            } else if (targetMode === 'back') {
+              if (finalNeedsBack || switchingModes || forceInitialUpdate) {
+                threeBackTexture.needsUpdate = true;
+                perfMonitor.trackTextureUpload();
+              }
+            } else if (targetMode === 'dual') {
+              if (finalNeedsFront || switchingModes || forceInitialUpdate) {
+                threeFrontTexture.needsUpdate = true;
+                perfMonitor.trackTextureUpload();
+              }
+              if (finalNeedsBack || switchingModes || forceInitialUpdate) {
+                threeBackTexture.needsUpdate = true;
+                perfMonitor.trackTextureUpload();
+              }
+            } else {
+              // Combined mode: only combined texture needed
+              if (threeTexture && (finalNeedsFront || finalNeedsBack || switchingModes || forceInitialUpdate)) {
+                threeTexture.needsUpdate = true;
+                perfMonitor.trackTextureUpload();
+              }
             }
           }
           
           // Clear update flags after processing
           current360Player.frontLensUpdated = false;
           current360Player.backLensUpdated = false;
+          
+          // Activate direct VideoFrame→GL upload after initial texture setup period
+          // Requires: GL refs wired up, initial forced frames complete, GL textures initialized,
+          // AND textureScale is 1.0 (Ultra) — at lower quality, canvas downscale is needed
+          if (!current360Player.directUploadActive && current360Player.directUploadReady && !forceInitialUpdate 
+              && current360Player.textureScale === 1.0) {
+            try {
+              const texProps = threeRenderer.properties.get(threeFrontTexture);
+              if (texProps && texProps.__webglTexture) {
+                current360Player.directUploadActive = true;
+                console.log('INSV direct VideoFrame→GL upload activated (bypasses canvas drawImage)');
+              }
+            } catch (e) {
+              // Three.js internals not accessible - stay on canvas path
+              console.log('INSV direct upload: cannot access GL texture handles, staying on canvas path');
+            }
+          }
           
           // Cache this render state for paused video optimization
           if (current360Player.cacheRenderResult) {
@@ -29000,7 +29254,7 @@
       } else {
         viewMode360 = '360';
         // Preserve view direction for all formats
-        threeCamera.fov = 100;
+        threeCamera.fov = 110;
         threeCamera.updateProjectionMatrix();
       }
       updateViewModeTag360();
@@ -29052,7 +29306,7 @@
       if (tag) {
         let text;
         if (viewMode360 === '360') {
-          const linearFov = threeCamera ? Math.round(threeCamera.fov) : 100;
+          const linearFov = threeCamera ? Math.round(threeCamera.fov) : 110;
           text = `Linear ${linearFov}°`;
         } else {
           text = `MEGA ${Math.round(megaHFov)}°`;
@@ -29134,7 +29388,8 @@
           // INSV files use standard dual-fisheye layout (front left, back right)
           current360Format = 'insv';
           
-          current360Player = new INSVPlayer360(file);
+          const myPlayer = new INSVPlayer360(file);
+          current360Player = myPlayer;
           current360Player.setLoadingCallback((msg) => {
             if (loadingText) loadingText.textContent = msg;
           });
@@ -29171,9 +29426,11 @@
           
           // Check if this load was superseded while waiting
           if (!isLoadValid()) {
-            console.log('[load360Video] gen=' + loadGeneration + ' invalidated after load(), stopping old player');
-            if (current360Player && current360Player.stop) {
-              current360Player.stop();
+            console.log('[load360Video] gen=' + loadGeneration + ' invalidated after load(), stopping OUR player');
+            // CRITICAL: Stop the player WE created (myPlayer), not current360Player
+            // which may now belong to a different load
+            if (myPlayer && myPlayer.stop) {
+              myPlayer.stop();
             }
             // Hide loading overlay since this load was cancelled
             if (loadingOverlay) loadingOverlay.style.display = 'none';
@@ -29248,6 +29505,10 @@
             // Re-check validity after async seek
             if (!isLoadValid()) {
               console.log('[load360Video] gen=' + loadGeneration + ' invalidated after initial seek');
+              // Stop our player if it's not the current one (another load took over)
+              if (current360Player !== myPlayer && myPlayer.stop) {
+                myPlayer.stop();
+              }
               return;
             }
             
@@ -29255,7 +29516,8 @@
             is360VideoActive = true;
             animate360FrameCount = 0;
             animate360ForceTextureFrames = 60;  // Force texture updates for first 60 frames (~2 seconds at 30fps)
-            animate360();
+            animate360LoopId++;
+            animate360(animate360LoopId);
             
             console.log('[load360Video] gen=' + loadGeneration + ' 360 display initialized and animation started');
           } else {
@@ -29333,7 +29595,8 @@
             is360VideoActive = true;  // Set BEFORE animate360!
             animate360FrameCount = 0;
             animate360ForceTextureFrames = 60;  // Force texture updates for first 60 frames
-            animate360();
+            animate360LoopId++;
+            animate360(animate360LoopId);
           }
           
           videoData.durationSec = current360Player.duration;
